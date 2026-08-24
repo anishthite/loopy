@@ -771,6 +771,9 @@ func buildAgent(cfg *config.Config, modelName, provName, sysPrompt string) (*age
 	ag := agent.New(llm.New(prov.BaseURL, key), apiID, maxOut, sysPrompt)
 	ag.ModelName, ag.Provider = modelName, provName
 	ag.ContextLimit = ctxLimit
+	if cfg.Experimental["hashlineEdit"] {
+		ag.UseHashlineTools()
+	}
 	return ag, modelName, provName, nil
 }
 

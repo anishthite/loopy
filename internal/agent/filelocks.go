@@ -59,12 +59,13 @@ func canonicalPathKey(path string) string {
 	return filepath.Clean(path)
 }
 
-// toolMutationPath extracts the path a write/edit tool call will mutate. The
-// second return is false for tools whose side effects aren't path-scoped
-// (bash), which must take the global lock.
+// toolMutationPath extracts the path a write/edit tool call will mutate (the
+// experimental hashline_edit shares edit's arg shape). The second return is
+// false for tools whose side effects aren't path-scoped (bash), which must
+// take the global lock.
 func toolMutationPath(toolName, args string) (string, bool) {
 	switch toolName {
-	case "write", "edit":
+	case "write", "edit", "hashline_edit":
 		var a struct {
 			Path string `json:"path"`
 		}

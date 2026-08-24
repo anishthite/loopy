@@ -40,6 +40,14 @@ func All() []Tool {
 	return []Tool{bashTool(), readTool(), writeTool(), editTool()}
 }
 
+// Hashline returns the experimental hashline tool set (see hashline.go):
+// hashline_read and hashline_edit stand in for read and edit, addressing
+// lines by staleness-checked LINE#HASH anchors. Gated on
+// experimental.hashlineEdit in config.
+func Hashline() []Tool {
+	return []Tool{bashTool(), hashlineReadTool(), writeTool(), hashlineEditTool()}
+}
+
 // Defs returns the llm.Tool definitions for a tool set.
 func Defs(ts []Tool) []llm.Tool {
 	defs := make([]llm.Tool, len(ts))
@@ -157,34 +165,180 @@ func readTool() Tool {
 		Def: llm.NewTool("read",
 			"Read a file and return its contents with line numbers.",
 			`{"type":"object","properties":{"path":{"type":"string","description":"Path to the file"},"offset":{"type":"number","description":"1-based line to start from"},"limit":{"type":"number","description":"Max lines to return (default 2000)"}},"required":["path"]}`),
+		Run: readRun(false),
+	}
+}
+
+// readRun renders the selected line window with either classic line numbers
+// ("N\tline") or hashline tags ("N#HASH:line") for the hashline_read variant.
+func readRun(hashlines bool) func(ctx context.Context, args json.RawMessage) (string, error) {
+	return func(ctx context.Context, args json.RawMessage) (string, error) {
+		var a struct {
+			Path   string `json:"path"`
+			Offset int    `json:"offset"`
+			Limit  int    `json:"limit"`
+		}
+		if err := json.Unmarshal(args, &a); err != nil {
+			return "", err
+		}
+		data, err := os.ReadFile(a.Path)
+		if err != nil {
+			return "", err
+		}
+		lines := strings.Split(string(data), "\n")
+		start := max(a.Offset-1, 0)
+		if start >= len(lines) {
+			return "", fmt.Errorf("offset %d past end of file (%d lines)", a.Offset, len(lines))
+		}
+		limit := a.Limit
+		if limit <= 0 {
+			limit = 2000
+		}
+		end := min(start+limit, len(lines))
+		var b strings.Builder
+		for i := start; i < end; i++ {
+			if hashlines {
+				fmt.Fprintf(&b, "%d#%s:%s\n", i+1, computeLineHash(i+1, lines[i]), lines[i])
+			} else {
+				fmt.Fprintf(&b, "%d\t%s\n", i+1, lines[i])
+			}
+		}
+		return truncate(b.String()), nil
+	}
+}
+
+func hashlineReadTool() Tool {
+	return Tool{
+		Def: llm.NewTool("hashline_read",
+			"Read a file with hashline annotations. Each line is prefixed with LINE#HASH (e.g. `5#ZP:  const x = 1;`). Use these LINE#HASH references in hashline_edit to make precise, staleness-checked edits.",
+			`{"type":"object","properties":{"path":{"type":"string","description":"Path to the file"},"offset":{"type":"number","description":"1-based line to start from"},"limit":{"type":"number","description":"Max lines to return (default 2000)"}},"required":["path"]}`),
+		Run: readRun(true),
+	}
+}
+
+func hashlineEditTool() Tool {
+	return Tool{
+		Def: llm.NewTool("hashline_edit",
+			`Edit a file using hashline references obtained from hashline_read. Each edit targets lines by their LINE#HASH tag, which acts as a staleness check — if the file changed since the last read, hash mismatches are caught before any mutation and the error returns the fresh tags.
+
+Operations:
+  replace: Replace line at pos (or range pos..end) with new lines. Single-line replace requires "current": the exact current content of the line at pos.
+  append:  Insert lines after pos (or at end of file if pos omitted)
+  prepend: Insert lines before pos (or at start of file if pos omitted)
+
+Multiple edits are applied atomically (all-or-nothing on validation), bottom-up so line numbers stay valid within the batch.`,
+			`{"type":"object","properties":{`+
+				`"path":{"type":"string","description":"Path to the file to edit"},`+
+				`"edits":{"type":"array","description":"Edit operations referencing LINE#HASH tags from hashline_read. Validated before any mutation.","items":{"type":"object","properties":{`+
+				`"op":{"type":"string","enum":["replace","append","prepend"],"description":"replace line(s) at pos (through end if given); append after pos (default EOF); prepend before pos (default BOF)"},`+
+				`"pos":{"type":"string","description":"Line reference as \"LINE#HASH\" (e.g. \"5#ZP\"). Required for replace; optional for append/prepend."},`+
+				`"end":{"type":"string","description":"End of range for multi-line replace, as \"LINE#HASH\"."},`+
+				`"lines":{"type":"array","items":{"type":"string"},"description":"New lines to insert or replace with (one string per line, no trailing newlines)"},`+
+				`"current":{"type":"string","description":"Single-line replace only: the exact current content of the line at pos. Must match or the edit is rejected before any mutation."}`+
+				`},"required":["op","lines"]}},`+
+				`"create_if_missing":{"type":"boolean","description":"If true and the file does not exist, create it from the append/prepend lines. Default false."}`+
+				`},"required":["path","edits"]}`),
 		Run: func(ctx context.Context, args json.RawMessage) (string, error) {
 			var a struct {
-				Path   string `json:"path"`
-				Offset int    `json:"offset"`
-				Limit  int    `json:"limit"`
+				Path  string `json:"path"`
+				Edits []struct {
+					Op      string   `json:"op"`
+					Pos     string   `json:"pos"`
+					End     string   `json:"end"`
+					Lines   []string `json:"lines"`
+					Current *string  `json:"current"`
+				} `json:"edits"`
+				CreateIfMissing bool `json:"create_if_missing"`
 			}
 			if err := json.Unmarshal(args, &a); err != nil {
 				return "", err
 			}
+
 			data, err := os.ReadFile(a.Path)
+			if os.IsNotExist(err) {
+				if !a.CreateIfMissing {
+					return "", fmt.Errorf("file not found: %s — use create_if_missing to create it", a.Path)
+				}
+				var newLines []string
+				for _, e := range a.Edits {
+					if e.Op == "append" || e.Op == "prepend" {
+						newLines = append(newLines, e.Lines...)
+					}
+				}
+				if len(newLines) == 0 {
+					return "", fmt.Errorf("cannot create file: no append/prepend lines provided")
+				}
+				content := strings.Join(newLines, "\n")
+				if err := os.MkdirAll(filepath.Dir(a.Path), 0o755); err != nil {
+					return "", err
+				}
+				if err := os.WriteFile(a.Path, []byte(content), 0o644); err != nil {
+					return "", err
+				}
+				return fmt.Sprintf("Created %s (%d lines)", a.Path, len(newLines)), nil
+			}
 			if err != nil {
 				return "", err
 			}
-			lines := strings.Split(string(data), "\n")
-			start := max(a.Offset-1, 0)
-			if start >= len(lines) {
-				return "", fmt.Errorf("offset %d past end of file (%d lines)", a.Offset, len(lines))
+
+			edits := make([]hashlineEdit, len(a.Edits))
+			for i, e := range a.Edits {
+				h := hashlineEdit{op: e.Op, lines: e.Lines}
+				switch e.Op {
+				case "replace":
+					if e.Pos == "" {
+						return "", fmt.Errorf("edit %d: replace requires a \"pos\" reference", i)
+					}
+					pos, err := parseTag(e.Pos)
+					if err != nil {
+						return "", err
+					}
+					h.pos = &pos
+					if e.End != "" {
+						end, err := parseTag(e.End)
+						if err != nil {
+							return "", err
+						}
+						h.end = &end
+					} else {
+						if e.Current == nil {
+							return "", fmt.Errorf("edit %d: single-line replace requires \"current\" (the exact content of the line being replaced)", i)
+						}
+						h.current, h.hasCur = *e.Current, true
+					}
+				case "append", "prepend":
+					if e.Pos != "" {
+						pos, err := parseTag(e.Pos)
+						if err != nil {
+							return "", err
+						}
+						h.pos = &pos
+					}
+				default:
+					return "", fmt.Errorf("edit %d: unknown op %q (want replace, append, or prepend)", i, e.Op)
+				}
+				edits[i] = h
 			}
-			limit := a.Limit
-			if limit <= 0 {
-				limit = 2000
+
+			res, err := applyHashlineEdits(string(data), edits)
+			if err != nil {
+				return "", err
 			}
-			end := min(start+limit, len(lines))
-			var b strings.Builder
-			for i := start; i < end; i++ {
-				fmt.Fprintf(&b, "%d\t%s\n", i+1, lines[i])
+			if res.firstChangedLine == 0 {
+				msg := "No changes applied."
+				if res.noopEdits > 0 {
+					msg += fmt.Sprintf(" %d edit(s) were no-ops (content already matches).", res.noopEdits)
+				}
+				return msg, nil
 			}
-			return truncate(b.String()), nil
+			if err := os.WriteFile(a.Path, []byte(res.lines), 0o644); err != nil {
+				return "", err
+			}
+			out := fmt.Sprintf("Applied %d edit(s) to %s", len(a.Edits), a.Path)
+			if res.noopEdits > 0 {
+				out += fmt.Sprintf("\nNote: %d edit(s) were no-ops.", res.noopEdits)
+			}
+			return out, nil
 		},
 	}
 }

@@ -152,6 +152,27 @@ func New(client *llm.Client, model string, maxTokens int, systemPrompt string) *
 	return a
 }
 
+// UseHashlineTools swaps the read/edit entries in a.Tools for the
+// experimental hashline variants (hashline_read/hashline_edit). Called at
+// agent construction when experimental.hashlineEdit is set in config.
+func (a *Agent) UseHashlineTools() {
+	repl := map[string]tools.Tool{}
+	for _, t := range tools.Hashline() {
+		name := t.Def.Function.Name
+		if name == "hashline_read" {
+			name = "read"
+		} else if name == "hashline_edit" {
+			name = "edit"
+		}
+		repl[name] = t
+	}
+	for i, cur := range a.Tools {
+		if t, ok := repl[cur.Def.Function.Name]; ok {
+			a.Tools[i] = t
+		}
+	}
+}
+
 // SetMCPTools swaps in the current MCP tool set (called by the MCP manager's
 // OnChange whenever a server settles). MCP tools live separately from
 // a.Tools so a settle mid-turn never mutates the slice a Turn is reading.

@@ -113,6 +113,10 @@ type Config struct {
 	// internal/mcp.ServerConfig for the normalized semantics). On load it is
 	// merged over imported claude/codex configs: loopy always wins per name.
 	MCPServers map[string]MCPServer `json:"mcp,omitempty"`
+	// Experimental gates opt-in features. Keys: "hashlineEdit" swaps the
+	// read/edit tools for the staleness-checked hashline variants
+	// (internal/tools/hashline.go).
+	Experimental map[string]bool `json:"experimental,omitempty"`
 }
 
 // MCPServer is the config-file form of an MCP server entry. It mirrors

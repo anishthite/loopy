@@ -285,6 +285,9 @@ func TestToolMutationPath(t *testing.T) {
 	if p, ok := toolMutationPath("edit", `{"path":"rel.go"}`); !ok || p != "rel.go" {
 		t.Fatalf("edit: %q %v", p, ok)
 	}
+	if p, ok := toolMutationPath("hashline_edit", `{"path":"rel.go","edits":[]}`); !ok || p != "rel.go" {
+		t.Fatalf("hashline_edit: %q %v", p, ok)
+	}
 	if _, ok := toolMutationPath("bash", `{"command":"ls"}`); ok {
 		t.Fatal("bash must be global (not path-scoped)")
 	}
@@ -552,5 +555,28 @@ func TestBroadcastBlockingSubscriberCannotDeadlock(t *testing.T) {
 	// free regardless.
 	if !ag.Tasks().Cancel(task.ID) {
 		t.Fatal("Cancel should accept a running task even with a parked subscriber")
+	}
+}
+
+// UseHashlineTools swaps read/edit for the hashline variants, leaving the
+// rest of the tool set untouched.
+func TestUseHashlineTools(t *testing.T) {
+	a := New(nil, "m", 1000, "sys")
+	a.UseHashlineTools()
+	var names []string
+	for _, tool := range a.Tools {
+		names = append(names, tool.Def.Function.Name)
+	}
+	joined := strings.Join(names, ",")
+	if !strings.Contains(joined, "hashline_read") || !strings.Contains(joined, "hashline_edit") {
+		t.Fatalf("hashline tools missing: %s", joined)
+	}
+	for _, n := range names {
+		if n == "read" || n == "edit" {
+			t.Fatalf("classic %s should have been swapped out: %s", n, joined)
+		}
+	}
+	if !strings.Contains(joined, "bash") || !strings.Contains(joined, "write") || !strings.Contains(joined, "task") {
+		t.Fatalf("other tools must survive: %s", joined)
 	}
 }
