@@ -131,6 +131,10 @@ type Config struct {
 	// Computer configures computer-use (internal/computer): which apps
 	// computer_exec may drive.
 	Computer ComputerConfig `json:"computer,omitempty"`
+	// Experimental gates opt-in features. Keys: "hashlineEdit" swaps the
+	// read/edit tools for the staleness-checked hashline variants
+	// (internal/tools/hashline.go).
+	Experimental map[string]bool `json:"experimental,omitempty"`
 }
 
 // ComputerConfig gates computer_exec per app (codex's per-bundle-id model).
