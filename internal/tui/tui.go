@@ -31,6 +31,7 @@ import (
 	"github.com/context-labs/loopy/internal/memory"
 	"github.com/context-labs/loopy/internal/session"
 	"github.com/context-labs/loopy/internal/skills"
+	"github.com/context-labs/loopy/internal/theme"
 	"github.com/context-labs/loopy/internal/tools"
 	"github.com/context-labs/loopy/internal/tools/bashrun"
 
@@ -38,18 +39,121 @@ import (
 	"github.com/muesli/termenv"
 )
 
-// UI styles use AdaptiveColor so they stay legible on both dark and light
-// terminal backgrounds (detected at startup by detectColorScheme).
+// UI styles are package vars so a theme switch can swap them live. The agent
+// goroutines only send messages; rendering and setTheme both run in Update/View,
+// so swapping these remains race-clean.
 var (
-	youStyle  = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "21", Dark: "12"}).Bold(true) // blue
-	botStyle  = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "90", Dark: "13"}).Bold(true) // purple/magenta
-	toolStyle = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "136", Dark: "11"})           // amber
-	dimStyle  = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "240", Dark: "245"})          // mid gray
-	errStyle  = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "124", Dark: "9"})            // red
-	// thinkingStyle renders reasoning tokens: dim and italic so they're
-	// visually distinct from the answer.
+	youStyle      = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "21", Dark: "12"}).Bold(true) // blue
+	botStyle      = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "90", Dark: "13"}).Bold(true) // purple/magenta
+	toolStyle     = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "136", Dark: "11"})           // amber
+	dimStyle      = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "240", Dark: "245"})          // mid gray
+	errStyle      = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "124", Dark: "9"})            // red
 	thinkingStyle = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "240", Dark: "245"}).Italic(true)
 )
+
+func syncStyles(s theme.StyleSet) {
+	youStyle, botStyle, toolStyle = s.You, s.Bot, s.Tool
+	dimStyle, errStyle, thinkingStyle = s.Dim, s.Error, s.Thinking
+}
+
+// syncLoopyMarkdown drives the TUI's own glamour markdown cache (renderMarkdown
+// in markdown.go) from the theme's resolved background, instead of calling
+// SetLightTheme/SetUnknownTheme directly from each setTheme branch. When
+// determined is false the background couldn't be read (auto, no signal) and
+// markdown renders in the neutral default style.
+func syncLoopyMarkdown(s theme.StyleSet) {
+	if !s.Determined {
+		SetUnknownTheme()
+		return
+	}
+	SetLightTheme(s.Bg == theme.BgLight)
+}
+
+// probeBackground is the single terminal-background detection implementation,
+// pure (no markdown/style side effects), returning the resolved background,
+// whether it was determined, and a short human source string for the UI note.
+// Both detectBackground (the theme.DetectFunc) and detectColorScheme (the
+// tested wrapper that also applies the TUI markdown side effects) delegate
+// here so the priority chain lives once:
+//
+//	LOOPY_THEME env > COLORFGBG > OSC 11 query on /dev/tty > termenv fallback
+//	> undetermined (neutral default).
+//
+// A config "theme" of light/dark is handled before this — setTheme routes
+// those straight to theme.Apply's built-in branch — so probeBackground only
+// runs for auto.
+func probeBackground() (bg theme.Background, determined bool, source string) {
+	switch strings.ToLower(os.Getenv("LOOPY_THEME")) {
+	case "light":
+		return theme.BgLight, true, "LOOPY_THEME"
+	case "dark":
+		return theme.BgDark, true, "LOOPY_THEME"
+	}
+	if v := os.Getenv("COLORFGBG"); v != "" {
+		if i := strings.LastIndex(v, ";"); i >= 0 {
+			var bgi int
+			if _, err := fmt.Sscanf(v[i+1:], "%d", &bgi); err == nil {
+				// standard palette: 0-6 dark, 7+ light (15 = white)
+				if bgi == 7 || bgi >= 8 {
+					return theme.BgLight, true, "COLORFGBG"
+				}
+				return theme.BgDark, true, "COLORFGBG"
+			}
+		}
+	}
+	// Query the terminal directly whenever we have one. termenv's query refuses
+	// to run inside tmux/screen (TERM=screen*/tmux*) and silently assumes dark
+	// — wrong for a tmux user on a light terminal. queryTerminalBackground
+	// reaches the REAL terminal via DCS passthrough inside tmux, and a plain
+	// OSC 11 query otherwise, so use it first and keep termenv as a fallback.
+	tty, err := os.OpenFile("/dev/tty", os.O_RDWR, 0)
+	if err != nil {
+		return theme.BgDark, false, "undetermined (no tty) — neutral default"
+	}
+	defer tty.Close()
+	inTmux := os.Getenv("TMUX") != "" ||
+		strings.HasPrefix(os.Getenv("TERM"), "screen") ||
+		strings.HasPrefix(os.Getenv("TERM"), "tmux")
+	if light, ok := queryTerminalBackground(tty, inTmux); ok {
+		if inTmux {
+			return bgFromLight(light), true, "terminal query (via tmux passthrough)"
+		}
+		return bgFromLight(light), true, "terminal query"
+	}
+	// fallback: termenv's own query (non-tmux terminals it can reach)
+	type result struct{ light bool }
+	done := make(chan result, 1)
+	go func() {
+		o := termenv.NewOutput(tty)
+		done <- result{light: !o.HasDarkBackground()}
+	}()
+	select {
+	case r := <-done:
+		return bgFromLight(r.light), true, "terminal query"
+	case <-time.After(300 * time.Millisecond):
+		// No reliable signal: don't force a dark guess. Neutral default keeps
+		// text at the terminal's own colors instead of inverting contrast.
+		if inTmux {
+			return theme.BgDark, false, "undetermined (tmux needs: set -g allow-passthrough on) — neutral default"
+		}
+		return theme.BgDark, false, "undetermined (query timed out) — neutral default"
+	}
+}
+
+func bgFromLight(light bool) theme.Background {
+	if light {
+		return theme.BgLight
+	}
+	return theme.BgDark
+}
+
+// detectBackground is the theme.DetectFunc passed to theme.Apply: the pure
+// detection half, no side effects (applyTheme drives the TUI markdown cache
+// via syncLoopyMarkdown from the resulting StyleSet).
+func detectBackground() (theme.Background, bool) {
+	bg, determined, _ := probeBackground()
+	return bg, determined
+}
 
 // messages sent from the agent goroutine
 type textMsg string
@@ -349,7 +453,7 @@ func Run(cfg *config.Config, modelName, provName, sysPrompt, resumeID string) (s
 		enableClickWheelMouse(os.Stdout)
 		applyTmuxMouseFix()
 	}
-	// pick the glamour style that matches the pick/detection resolution
+	theme.Load() // cache user themes from $LOOPY_HOME/themes or ~/.loopy/themes
 	m.applyTheme(cfg.Theme)
 	if m.cfgExtra == nil {
 		m.cfgExtra = map[string]string{}
@@ -720,58 +824,59 @@ func (m *model) persist() {
 	m.saved = len(m.agent.Messages)
 }
 
-// setTheme switches the color scheme ("light"/"dark"/"auto") live and
-// persists the pick to the global config: markdown re-renders under the new
-// glamour style and every AdaptiveColor UI style follows lipgloss. A theme
-// file change in ANOTHER running loopy session is picked up live via
-// syncThemeMsg.
-func (m *model) setTheme(theme string) {
-	if theme != "light" && theme != "dark" {
-		theme = "auto"
+// setTheme switches the active theme live and persists it. Built-ins and user
+// themes share the same apply path; auto persists as "" like before.
+func (m *model) setTheme(name string) {
+	name = strings.ToLower(strings.TrimSpace(name))
+	theme.Load()
+	if _, ok := theme.Find(theme.All(), name); !ok {
+		name = "auto"
 	}
-	how := m.applyTheme(theme)
-	m.cfg.Theme = theme
-	if theme == "auto" {
+	how := m.applyTheme(name)
+	m.cfg.Theme = name
+	if name == "auto" {
 		m.cfg.Theme = "" // auto persists as "" (omitted = auto-detect)
 	}
 	if m.cfgExtra == nil {
 		m.cfgExtra = map[string]string{}
 	}
-	if theme == "auto" {
-		delete(m.cfgExtra, "theme") // explicit pick, not omission
+	if name == "auto" {
+		delete(m.cfgExtra, "theme")
 	} else {
-		m.cfgExtra["theme"] = theme
+		m.cfgExtra["theme"] = name
 	}
 	if err := m.cfg.Save(); err != nil {
 		m.append(errStyle.Render("config save failed: " + err.Error()))
 	}
-	m.refreshVP() // re-render the transcript under the new scheme
-	if theme == "auto" {
+	m.refreshVP()
+	if name == "auto" {
 		m.append(dimStyle.Render(fmt.Sprintf("◐ theme: %s (auto: %s)", CurrentTheme(), how)))
-	} else {
-		m.append(dimStyle.Render("◐ theme: " + CurrentTheme()))
+		return
 	}
+	m.append(dimStyle.Render("◐ theme: " + theme.Active()))
 }
 
-// applyTheme points rendering at a scheme WITHOUT persisting: auto re-detects
-// (re-reading the terminal background so switching dark→auto can't stay dark),
-// explicit picks override detection directly. Called by setTheme, startup, and
-// the config watcher. how (only meaningful for auto) names the detection
-// source so a wrong pick is diagnosable in the transcript note.
-func (m *model) applyTheme(theme string) (how string) {
-	switch theme {
-	case "light":
-		SetLightTheme(true)
-		lipgloss.SetHasDarkBackground(false)
-		setSchemeOverride("light")
-	case "dark":
-		SetLightTheme(false)
-		lipgloss.SetHasDarkBackground(true)
-		setSchemeOverride("dark")
-	default: // auto: don't touch m.cfg.Theme — setTheme owns persistence
+// applyTheme points rendering at a scheme without persisting. The config
+// watcher calls this for changes made by another loopy session.
+func (m *model) applyTheme(name string) (how string) {
+	name = strings.ToLower(strings.TrimSpace(name))
+	theme.Load()
+	if name == "" || name == "auto" {
 		setSchemeOverride("")
-		how = detectColorScheme()
+		bg, determined, source := probeBackground()
+		theme.ApplyAuto(bg, determined)
+		how = source
+	} else {
+		how = theme.Apply(name, detectBackground)
+		if name == "light" || name == "dark" {
+			setSchemeOverride(name)
+		} else {
+			setSchemeOverride("")
+		}
 	}
+	s := theme.Styles()
+	syncStyles(s)
+	syncLoopyMarkdown(s)
 	return how
 }
 
@@ -1118,81 +1223,17 @@ func cwd() string {
 
 // detectColorScheme figures out whether the terminal background is light and
 // calls SetLightTheme so markdown renders with a matching (high-contrast)
-// glamour style. Priority:
-//  1. LOOPY_THEME=light|dark (explicit env override)
-//  2. COLORFGBG (set by many terminals; last field is the bg color index)
-//  3. an OSC 11 background query on /dev/tty with a short timeout
-//  4. default: dark (the safe assumption for coding terminals)
-//
-// The config theme is NOT consulted here — applyTheme handles explicit picks
-// before auto ever reaches detection. detectColorScheme returns a short
-// human-readable note naming the source of the decision (shown by /theme auto
-// so a wrong pick is diagnosable).
+// glamour style. applyTheme handles explicit config picks before auto reaches
+// this detector. The returned source is shown in the /theme auto note.
 func detectColorScheme() string {
-	setScheme := func(light bool) {
-		SetLightTheme(light)                  // glamour markdown style
-		lipgloss.SetHasDarkBackground(!light) // AdaptiveColor picks
-	}
-	switch strings.ToLower(os.Getenv("LOOPY_THEME")) {
-	case "light":
-		setScheme(true)
-		return "LOOPY_THEME"
-	case "dark":
-		setScheme(false)
-		return "LOOPY_THEME"
-	}
-	if v := os.Getenv("COLORFGBG"); v != "" {
-		if i := strings.LastIndex(v, ";"); i >= 0 {
-			var bg int
-			if _, err := fmt.Sscanf(v[i+1:], "%d", &bg); err == nil {
-				// standard palette: 0-6 dark, 7+ light (15 = white)
-				setScheme(bg == 7 || bg >= 8)
-				return "COLORFGBG"
-			}
-		}
-	}
-	// Query the terminal directly whenever we have one. termenv's query refuses
-	// to run inside tmux/screen (TERM=screen*/tmux*) and silently assumes a dark
-	// background — wrong for a tmux user on a light terminal. queryTerminal-
-	// Background reaches the REAL terminal via DCS passthrough inside tmux, and
-	// via a plain OSC 11 query otherwise, so use it first and keep termenv only
-	// as a fallback for terminals it can query directly.
-	tty, err := os.OpenFile("/dev/tty", os.O_RDWR, 0)
-	if err != nil {
+	bg, determined, source := probeBackground()
+	if !determined {
 		SetUnknownTheme()
-		return "undetermined (no tty) — neutral default"
+		return source
 	}
-	defer tty.Close()
-	inTmux := os.Getenv("TMUX") != "" ||
-		strings.HasPrefix(os.Getenv("TERM"), "screen") ||
-		strings.HasPrefix(os.Getenv("TERM"), "tmux")
-	if light, ok := queryTerminalBackground(tty, inTmux); ok {
-		setScheme(light)
-		if inTmux {
-			return "terminal query (via tmux passthrough)"
-		}
-		return "terminal query"
-	}
-	// fallback: termenv's own query (non-tmux terminals it can reach)
-	type result struct{ light bool }
-	done := make(chan result, 1)
-	go func() {
-		o := termenv.NewOutput(tty)
-		done <- result{light: !o.HasDarkBackground()}
-	}()
-	select {
-	case r := <-done:
-		setScheme(r.light)
-		return "terminal query"
-	case <-time.After(300 * time.Millisecond):
-		// No reliable signal: don't force a dark guess. Neutral default keeps
-		// text at the terminal's own colors instead of inverting contrast.
-		SetUnknownTheme()
-		if inTmux {
-			return "undetermined (tmux needs: set -g allow-passthrough on) — neutral default"
-		}
-		return "undetermined (query timed out) — neutral default"
-	}
+	SetLightTheme(bg == theme.BgLight)
+	lipgloss.SetHasDarkBackground(bg == theme.BgDark)
+	return source
 }
 
 // inputContentHeight returns the number of lines the input needs to show its
@@ -2805,7 +2846,7 @@ func (m *model) submitTurn(text string, authored bool) (tea.Model, tea.Cmd) {
 				send(steeredMsg(s))
 			},
 			OnCompacted: func(sum string, cutoff int) { send(compactMsg{summary: sum, cutoff: cutoff}) },
-			OnUsage:   func(u llm.Usage) { send(usageMsg(u)) },
+			OnUsage:     func(u llm.Usage) { send(usageMsg(u)) },
 		}
 		var final string
 		var err error
@@ -2940,11 +2981,11 @@ func (m *model) command(text string) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "/theme":
 		if len(fields) > 1 {
-			switch fields[1] {
-			case "light", "dark", "auto":
-				m.setTheme(fields[1])
-			default:
-				m.append(errStyle.Render("usage: /theme light|dark|auto"))
+			name := strings.ToLower(fields[1])
+			if _, ok := theme.Find(theme.All(), name); ok {
+				m.setTheme(name)
+			} else {
+				m.append(errStyle.Render("usage: /theme light|dark|auto|<name>"))
 			}
 		} else {
 			m.openPaletteOn("theme") // bare: open the switcher, don't toggle blind

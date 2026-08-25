@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Spec — JSON themes</title>
+<meta name="task" content="Wire JSON theme files into loopy TUI">
+<meta name="date-started" content="2026-08-25">
+<meta name="date-updated" content="2026-08-25">
+<meta name="status" content="ready-for-review">
+<meta name="blast-radius" content="low">
+<meta name="tags" content="tui,theme,config">
+<meta name="related" content="">
+<style>
+  body { font: 14px/1.45 -apple-system, system-ui, sans-serif; max-width: 880px; margin: 1.5rem auto; padding: 0 1rem; color: #111; }
+  h1 { font-size: 20px; margin: 0 0 .25rem; }
+  h2 { font-size: 15px; margin: 1.4rem 0 .4rem; border-bottom: 1px solid #ddd; padding-bottom: .2rem; }
+  table { border-collapse: collapse; width: 100%; margin: .4rem 0 .8rem; }
+  th, td { border: 1px solid #ddd; padding: 4px 8px; text-align: left; vertical-align: top; }
+  th { background: #f6f6f6; font-weight: 600; }
+  code, pre { font-family: ui-monospace, Menlo, monospace; }
+  code { background: #f1f1f1; padding: 1px 4px; border-radius: 3px; font-size: 12.5px; }
+  .blast-low { color: #2a7a2a; }
+  .meta { color: #555; font-size: 12.5px; margin-bottom: .8rem; }
+  .kv { display: grid; grid-template-columns: 140px 1fr; gap: 2px 14px; font-size: 13px; margin: .4rem 0 1rem; }
+  .kv b { color: #444; font-weight: 600; }
+</style>
+</head>
+<body>
+<h1>Wire JSON themes into loopy TUI</h1>
+<p class="meta"><code>themes</code> · worktree <code>~/workspace/loopy-themes</code> · 2026-08-25 · status <b>ready-for-review</b> · blast <span class="blast-low">low</span></p>
+
+<h2>Summary</h2>
+<div class="kv">
+  <b>Goal</b><div>Load user theme files and apply them through the existing <code>/theme</code> and <code>Config.Theme</code> path.</div>
+  <b>Source</b><div><code>$LOOPY_HOME/themes/*.json</code> or <code>~/.loopy/themes/*.json</code>.</div>
+  <b>Surface</b><div>TUI colors, <code>/theme</code>, config string only.</div>
+  <b>Schema</b><div>No persisted schema change; <code>Config.Theme</code> accepts a user theme name.</div>
+  <b>Open Qs</b><div>0.</div>
+</div>
+
+<h2>Files</h2>
+<table>
+  <tr><th>Path</th><th>Kind</th><th>Delta</th></tr>
+  <tr><td><code>internal/theme/theme.go</code></td><td>touch</td><td>Add resolved-auto metadata, <code>LOOPY_HOME</code> lookup, and safe user-auto neutral markdown.</td></tr>
+  <tr><td><code>internal/tui/tui.go</code></td><td>touch</td><td>Apply <code>theme.StyleSet</code> to the six TUI styles and widen <code>/theme</code> to loaded names.</td></tr>
+  <tr><td><code>internal/tui/palette.go</code></td><td>touch</td><td>List built-in themes plus loaded user theme names.</td></tr>
+  <tr><td><code>internal/config/config.go</code></td><td>touch</td><td>Document user theme names in <code>Config.Theme</code>.</td></tr>
+  <tr><td><code>docs/features.md</code>, <code>README.md</code>, <code>docs/roadmap.md</code></td><td>touch</td><td>Document shipped six-role JSON theme slice and deferred rich theme system.</td></tr>
+</table>
+
+<h2>Decisions</h2>
+<table>
+  <tr><th>ID</th><th>Choice · Rationale</th></tr>
+  <tr><td>D-001</td><td>Reuse <code>Config.Theme</code>. A second theme config file would duplicate selection state.</td></tr>
+  <tr><td>D-002</td><td>Keep rich opencode features deferred. Six roles cover loopy's current colored surface.</td></tr>
+</table>
+
+<h2>Tradeoffs</h2>
+<table>
+  <tr><th>ID</th><th>Picked over Rejected · Reason</th></tr>
+  <tr><td>T-001</td><td><code>$LOOPY_HOME/themes</code> over raw <code>~/.loopy/themes</code>. Tests and users can redirect all loopy state with one knob.</td></tr>
+</table>
+
+<h2>Reversibility</h2>
+<p>R-001 · <span class="blast-low">low</span>. Revert the <code>themes</code> branch commit; persisted configs with user theme names fall back through existing config loading.</p>
+
+<h2>Followups</h2>
+<ul>
+  <li>L-001 · Add named defs, <code>{dark, light}</code> variants, and terminal-palette-derived system theme only after six-role themes feel limiting.</li>
+</ul>
+
+<h2>Definition of done</h2>
+<ul>
+  <li><code>gofmt -s</code>, <code>go vet ./...</code>, and focused race tests pass.</li>
+  <li>Branch is committed and pushed to <code>anish/themes</code>.</li>
+</ul>
+</body>
+</html>

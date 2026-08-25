@@ -1,0 +1,13 @@
+// Solarized Light — Ethan Schoonover's light palette. Light bg.
+// https://ethanschoonover.com/solarized — the canonical light variant.
+{
+  "background": "light",
+  "colors": {
+    "you":      "#268bd2", // solarized blue
+    "bot":      "#6c71c4", // solarized violet
+    "tool":     "#b58900", // solarized yellow
+    "dim":      "#93a1a1", // solarized base1 (muted)
+    "error":    "#dc322f", // solarized red
+    "thinking": "#93a1a1"  // solarized base1 (italic)
+  }
+}

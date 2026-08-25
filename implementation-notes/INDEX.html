@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Implementation Notes — Index</title>
+<style>
+  body { font: 14px/1.5 -apple-system, system-ui, sans-serif; max-width: 1100px; margin: 2rem auto; padding: 0 1rem; }
+  table { border-collapse: collapse; width: 100%; }
+  th, td { border: 1px solid #ddd; padding: 6px 8px; text-align: left; vertical-align: top; }
+  th { background: #f6f6f6; position: sticky; top: 0; }
+  .blast-low { color: #2a7a2a; }
+  .status-ready-for-review { color: #2a7a2a; }
+  a { color: #1a5fb4; text-decoration: none; } a:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+<h1>Implementation Notes — Index</h1>
+<p>One row per task, newest first. Never delete — superseded rows get strikethrough and a <code>[superseded by …]</code> note.</p>
+<table>
+  <thead><tr><th>Date</th><th>Task</th><th>Status</th><th>Blast</th><th>Tags</th><th>Summary</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>2026-08-25</td>
+      <td><a href="2026-08-25-json-themes.html">Wire JSON themes into loopy TUI</a></td>
+      <td class="status-ready-for-review">ready-for-review</td>
+      <td class="blast-low">low</td>
+      <td>tui,theme,config</td>
+      <td>User theme files feed existing <code>Config.Theme</code> and <code>/theme</code>; rich opencode theme system remains deferred.</td>
+    </tr>
+  </tbody>
+</table>
+</body>
+</html>

@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -8,6 +10,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/context-labs/loopy/internal/config"
+	"github.com/context-labs/loopy/internal/theme"
 )
 
 // /theme light must switch markdown rendering to the light style (dark text
@@ -72,6 +75,40 @@ func TestThemeBareOpensSwitcher(t *testing.T) {
 	}
 	m.setTheme("dark")    // leave dark default for other tests
 	setSchemeOverride("") // theme state is process-global: restore detection mode
+}
+
+func TestThemeCommandAppliesLoadedUserTheme(t *testing.T) {
+	t.Setenv("LOOPY_HOME", t.TempDir())
+	dir, err := theme.DefaultDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "nord.json"), []byte(`{"background":"dark","colors":{"you":"110"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	empty := filepath.Join(t.TempDir(), "missing")
+	t.Cleanup(func() {
+		theme.LoadFrom(empty)
+		theme.Apply("dark", nil)
+		SetLightTheme(false)
+	})
+
+	m := compactCmdModel()
+	m.command("/theme")
+	pp := m.palette.top()
+	if got := pp.list; len(got) != 4 || got[3] != "nord" {
+		t.Fatalf("theme panel list: %v", got)
+	}
+	m.command("/theme nord")
+	if got := theme.Active(); got != "nord" {
+		t.Fatalf("Active = %q, want nord", got)
+	}
+	if got := m.cfg.Theme; got != "nord" {
+		t.Fatalf("cfg.Theme = %q, want nord", got)
+	}
 }
 
 // Theme defaults to auto ("" in config) unless the user picks one.

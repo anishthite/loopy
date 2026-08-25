@@ -1,0 +1,13 @@
+// Catppuccin Mocha — the flagship dark flavor. Dark bg.
+// https://catppuccin.com/palette — Mocha accent colors mapped to loopy roles.
+{
+  "background": "dark",
+  "colors": {
+    "you":      "#89b4fa", // mocha blue
+    "bot":      "#cba6f7", // mocha mauve
+    "tool":     "#f9e2af", // mocha yellow
+    "dim":      "#6c7086", // mocha overlay2 (muted)
+    "error":    "#f38ba8", // mocha red
+    "thinking": "#a6adc8"  // mocha subtext0 (italic)
+  }
+}
