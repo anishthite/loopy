@@ -27,6 +27,27 @@ func TestLoadSaveDefaults(t *testing.T) {
 	}
 }
 
+func TestTPSGaugeRoundTrip(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.TPSGauge = "lights"
+	if err := cfg.Save(); err != nil {
+		t.Fatal(err)
+	}
+
+	reloaded, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reloaded.TPSGauge != "lights" {
+		t.Fatalf("TPSGauge = %q, want lights", reloaded.TPSGauge)
+	}
+}
+
 func TestLoadRejectsBadJSON(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

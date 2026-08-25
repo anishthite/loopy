@@ -86,6 +86,12 @@ overrides it when advertised. `maxOut` (optional) caps **output** tokens; 0 uses
 the provider's `max_completion_tokens`, else `context`. The old `maxTokens` field
 still parses (it always meant the context window) but is superseded by `context`.
 
+While a completion streams, the status line also shows a live, estimated TPS
+gauge. It defaults to a compact tachometer. Set `"tpsGauge"` to `"bar"`,
+`"tach"`, `"spark"`, `"lights"`, or `"off"` to choose its style. Try the
+standalone visual lab with `go run ./cmd/tps-demo -snap`; omit `-snap` for the
+interactive demo, where Space toggles floor/coast.
+
 Any OpenAI-compatible endpoint works as a provider. Key resolution:
 `apiKeyEnv` env var → `apiKey` literal → for api.inference.net, the key stored
 in `~/.inf/config.json` by the `inf` CLI.

@@ -2,11 +2,11 @@
 // renders four thick tach-bar gauges live, stacked vertically, plus the F1
 // shift lights — so you can pick how you want the current "level" to read.
 //
-//	go run ./cmd/tps-demo            # interactive: hold SPACE to floor it
+//	go run ./cmd/tps-demo            # interactive: SPACE toggles floor/coast
 //	go run ./cmd/tps-demo -snap      # static frames at a few TPS levels (no TTY)
 //	go run ./cmd/tps-demo -rec       # headless ASCII recording (no TTY)
 //
-// Hold SPACE to floor the throttle; release to coast. 'a' toggles auto-rev
+// SPACE toggles the throttle between floored and coasting. 'a' toggles auto-rev
 // (on by default — the engine cycles idle → rev → redline → shift on its own).
 // 'r' resets the peak. q / esc / ctrl+c quits.
 package main
@@ -35,23 +35,22 @@ func frameTick() tea.Cmd {
 type model struct {
 	tracker *tps.Tracker
 
-	auto    bool   // engine revs on its own
-	floor   bool   // SPACE held — wide-open throttle
-	cycle   int    // which rev cycle we're in (drives higher peaks each lap)
-	phase   string // idle | rev | redline | shift
-	phaseT  time.Duration
-	rate    float64 // smoothed actual t/s feeding the tracker
-	carry   float64 // fractional tokens carried across frames (int truncation fix)
-	maxEver float64
+	autoRevving bool   // engine revs on its own
+	isFloored   bool   // SPACE toggles wide-open throttle
+	cycle       int    // which rev cycle we're in (drives higher peaks each lap)
+	phase       string // idle | rev | redline | shift
+	phaseT      time.Duration
+	rate        float64 // smoothed actual t/s feeding the tracker
+	carry       float64 // fractional tokens carried across frames (int truncation fix)
 
 	width, height int
 }
 
 func initial() model {
 	return model{
-		tracker: tps.New(),
-		auto:    true,
-		phase:   "idle",
+		tracker:     tps.New(),
+		autoRevving: true,
+		phase:       "idle",
 	}
 }
 
@@ -68,13 +67,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "q", "esc", "ctrl+c":
 			return m, tea.Quit
 		case " ":
-			m.floor = true
-		case " " + "release": // not produced; handled in release below
+			m.isFloored = !m.isFloored
 		case "a":
-			m.auto = !m.auto
+			m.autoRevving = !m.autoRevving
 		case "r":
 			m.tracker.Reset()
-			m.maxEver = 0
 			m.cycle = 0
 			m.phase = "idle"
 			m.phaseT = 0
@@ -94,8 +91,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m model) step(dt time.Duration) model {
 	m.phaseT += dt
 
-	// base target from the phase machine (auto-rev). SPACE overrides to
-	// wide-open throttle; letting go snaps to a coast.
+	// base target from the phase machine. The floor toggle overrides to
+	// wide-open throttle; toggling it off resumes the automatic cycle.
 	base := 6.0 // idle
 	switch m.phase {
 	case "idle":
@@ -125,9 +122,9 @@ func (m model) step(dt time.Duration) model {
 		}
 	}
 
-	if m.floor {
+	if m.isFloored {
 		base = 140 // floor it regardless of phase
-	} else if !m.auto {
+	} else if !m.autoRevving {
 		base = 4 // manual + no gas = idle
 	}
 
@@ -145,9 +142,6 @@ func (m model) step(dt time.Duration) model {
 		tokens = 0
 	}
 	m.tracker.AddTokens(tokens)
-	if m.rate > m.maxEver {
-		m.maxEver = m.rate
-	}
 	return m
 }
 
@@ -187,15 +181,15 @@ func (m model) View() string {
 		"phase %-8s cycle %d   rate %5.1f t/s   peak %5.1f   redline %5.0f   frame %d",
 		m.phase, m.cycle, m.rate, snap.Peak, snap.Redline, snap.Frame,
 	))
-	if m.floor {
+	if m.isFloored {
 		telemetry = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("196")).Render("│ FLOORED │ ") + telemetry
 	}
-	if !m.auto {
+	if !m.autoRevving {
 		telemetry = lipgloss.NewStyle().Foreground(lipgloss.Color("220")).Render("MANUAL ") + telemetry
 	}
 
 	controls := lipgloss.NewStyle().Foreground(lipgloss.Color("241")).Render(
-		"hold SPACE floor it · a auto-rev: " + boolStr(m.auto) + " · r reset peak · q quit")
+		"SPACE floor/coast · a auto-rev: " + boolStr(m.autoRevving) + " · r reset peak · q quit")
 
 	body := lipgloss.JoinVertical(lipgloss.Left,
 		top, "",
@@ -324,7 +318,7 @@ func runSnapshot() {
 	dim := lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
 
 	fmt.Println(pr.Render("LOOPY · TACH-BAR LAB") + "  " + dim.Render("— horizontal segmented bars, four load points"))
-	fmt.Println(dim.Render("(run with no flags for the live revving TUI: hold SPACE to floor it)"))
+	fmt.Println(dim.Render("(run with no flags for the live revving TUI: SPACE toggles floor/coast)"))
 	fmt.Println()
 
 	for _, lv := range levels {

@@ -31,9 +31,9 @@ import (
 	"github.com/context-labs/loopy/internal/memory"
 	"github.com/context-labs/loopy/internal/session"
 	"github.com/context-labs/loopy/internal/skills"
-	"github.com/context-labs/loopy/internal/tps"
 	"github.com/context-labs/loopy/internal/tools"
 	"github.com/context-labs/loopy/internal/tools/bashrun"
+	"github.com/context-labs/loopy/internal/tps"
 
 	"github.com/charmbracelet/x/ansi"
 	"github.com/muesli/termenv"
@@ -2827,7 +2827,7 @@ func (m *model) submitTurn(text string, authored bool) (tea.Model, tea.Cmd) {
 				send(steeredMsg(s))
 			},
 			OnCompacted: func(sum string, cutoff int) { send(compactMsg{summary: sum, cutoff: cutoff}) },
-			OnUsage:   func(u llm.Usage) { send(usageMsg(u)) },
+			OnUsage:     func(u llm.Usage) { send(usageMsg(u)) },
 		}
 		var final string
 		var err error
@@ -3368,23 +3368,31 @@ func (m *model) statusView() string {
 		spend += " · " + fmtCost(cost)
 	}
 	line := fmt.Sprintf(" %s   %s   %s   %s", shortCWD(), model, m.provName, spend)
-	// Append the live TPS gauge while a turn streams; at idle the status line
-	// keeps its existing shape (the gauge only earns its keep mid-rev).
-	if g := m.tpsGauge(); g != "" {
-		line += "   " + g
+	gauge := m.tpsGauge()
+	if gauge == "" || m.width <= 0 {
+		return dimStyle.Render(truncLine(line, max(m.width, 0)))
 	}
-	return dimStyle.Render(truncLine(line, max(m.width, 0)))
+
+	// Reserve the right edge for the gauge. Truncating the complete composed
+	// line would hide the live measurement behind a long cwd or model name.
+	gauge = ansi.Truncate(gauge, m.width, "…")
+	remaining := m.width - ansi.StringWidth(gauge)
+	if remaining <= 0 {
+		return gauge
+	}
+	if remaining <= 3 {
+		return dimStyle.Render(ansi.Truncate(line, remaining, "…"))
+	}
+	return dimStyle.Render(truncLine(line, remaining-3)) + "   " + gauge
 }
 
 // tpsGauge renders the configured tokens/sec gauge for the status line, or ""
-// when the gauge is off, idle, or the style is unknown. The raw ANSI-colored
-// gauge is embedded inside the dim-styled line; lipgloss composes the nested
-// escapes correctly because each gauge resets its own styling.
+// when the gauge is off, idle, or the style is unknown.
 func (m *model) tpsGauge() string {
 	if !m.busy || m.tpsTracker == nil || m.cfg == nil {
 		return ""
 	}
-	style := m.cfg.TpsGauge
+	style := m.cfg.TPSGauge
 	if style == "" {
 		style = "tach" // default: the rpm-feeling analog needle
 	}
@@ -3532,8 +3540,8 @@ func wrap(s string, width int) string {
 }
 
 func truncLine(s string, width int) string {
-	if width > 0 && len(s) > width {
-		return s[:width-1] + "…"
+	if width > 0 && ansi.StringWidth(s) > width {
+		return ansi.Truncate(s, width, "…")
 	}
 	return s
 }

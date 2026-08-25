@@ -7,9 +7,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/x/ansi"
 	"github.com/context-labs/loopy/internal/agent"
 	"github.com/context-labs/loopy/internal/config"
 	"github.com/context-labs/loopy/internal/llm"
+	"github.com/context-labs/loopy/internal/tps"
 )
 
 // statusModel builds a model with an agent so statusView has data.
@@ -57,6 +59,63 @@ func TestStatusLineDefaults(t *testing.T) {
 	}
 	if !strings.Contains(v, "  m   p  ") && !strings.Contains(v, " m   p ") {
 		t.Errorf("bare model and provider should appear\n%s", tailLines(v, 6))
+	}
+}
+
+func TestStatusLineTPSGauge(t *testing.T) {
+	tests := []struct {
+		name  string
+		style string
+		want  string
+	}{
+		{name: "default tach", want: "◆"},
+		{name: "bar", style: "bar", want: "❯"},
+		{name: "sparkline", style: "spark", want: "t/s"},
+		{name: "shift lights", style: "lights", want: "●"},
+		{name: "off", style: "off", want: ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := statusModel()
+			m.busy = true
+			m.cfg = &config.Config{TPSGauge: tt.style}
+			m.tpsTracker = tps.New()
+			m.tpsTracker.AddTokens(12)
+			m.tpsTracker.Sample()
+
+			got := m.statusView()
+			if tt.want == "" {
+				if strings.Contains(got, "t/s") {
+					t.Fatalf("off gauge should be hidden: %q", got)
+				}
+				return
+			}
+			if !strings.Contains(got, tt.want) {
+				t.Errorf("%s gauge missing %q: %q", tt.name, tt.want, got)
+			}
+			if gotWidth := ansi.StringWidth(got); gotWidth > m.width {
+				t.Errorf("%s gauge status width = %d, want <= %d: %q", tt.name, gotWidth, m.width, got)
+			}
+		})
+	}
+
+	m := statusModel()
+	m.cfg = &config.Config{}
+	m.tpsTracker = tps.New()
+	m.tpsTracker.AddTokens(12)
+	if got := m.statusView(); strings.Contains(got, "t/s") {
+		t.Errorf("idle gauge should be hidden: %q", got)
+	}
+}
+
+func TestTruncLinePreservesANSISequences(t *testing.T) {
+	got := truncLine("\x1b[31mabcdef\x1b[0m", 4)
+	if width := ansi.StringWidth(got); width != 4 {
+		t.Errorf("ANSI-aware truncated width = %d, want 4: %q", width, got)
+	}
+	if !strings.HasSuffix(got, "\x1b[0m") {
+		t.Errorf("truncated ANSI string should reset styling: %q", got)
 	}
 }
 

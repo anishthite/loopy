@@ -32,8 +32,8 @@ const window = time.Second
 const sampleCap = 32
 
 // Tracker timestamps streaming-token arrivals and derives instantaneous TPS
-// over a sliding window. It is safe for concurrent use: the turn goroutine
-// feeds Add while the TUI's render path reads Snapshot.
+// over a sliding window. It is safe for concurrent Add, Sample, and Snapshot
+// calls so a producer and renderer can run independently.
 type Tracker struct {
 	mu      sync.Mutex
 	now     func() time.Time
