@@ -146,6 +146,25 @@ func saveClipboardImage(ext string, data []byte) (string, error) {
 	return path, os.WriteFile(path, data, 0o600)
 }
 
+// bareImagePathAsMention detects a drag-and-drop submission: the whole input
+// is a path to an existing image file (paths may contain spaces, so we test
+// the trimmed text as-is rather than tokenizing). Returns the text rewritten
+// as an @-mention so imageParts inlines it for vision models.
+func bareImagePathAsMention(text string) (string, bool) {
+	p := strings.TrimSpace(text)
+	if p == "" || strings.HasPrefix(p, "@") || strings.HasPrefix(p, "!") {
+		return "", false
+	}
+	if !imageExtsForMention[strings.ToLower(filepath.Ext(p))] {
+		return "", false
+	}
+	info, err := os.Stat(p)
+	if err != nil || info.IsDir() {
+		return "", false
+	}
+	return "@" + p, true
+}
+
 // pasteImageCmd reads the clipboard image off the UI thread.
 func pasteImageCmd() tea.Msg {
 	ext, data, err := readClipboardImage()
@@ -153,6 +172,14 @@ func pasteImageCmd() tea.Msg {
 		return imageMsg{err: err}
 	}
 	if data == nil {
+		// No raw image: maybe the clipboard holds a path to an image file
+		// (macOS puts the file URL on the pasteboard for Finder copies and
+		// screenshot drags). pbpaste is built-in, no extra tools needed.
+		if p := clipboardText(); imageExtsForMention[strings.ToLower(filepath.Ext(p))] {
+			if info, statErr := os.Stat(p); statErr == nil && !info.IsDir() {
+				return imageMsg{path: p}
+			}
+		}
 		return imageMsg{}
 	}
 	path, err := saveClipboardImage(ext, data)
@@ -160,4 +187,16 @@ func pasteImageCmd() tea.Msg {
 		return imageMsg{err: err}
 	}
 	return imageMsg{path: path}
+}
+
+// clipboardText returns the clipboard's text content with a file:// URL
+// resolved to a plain path, or "" if there's nothing usable.
+func clipboardText() string {
+	out, err := exec.Command("pbpaste").Output()
+	if err != nil {
+		return ""
+	}
+	p := strings.TrimSpace(string(out))
+	p = strings.TrimPrefix(p, "file://")
+	return p
 }

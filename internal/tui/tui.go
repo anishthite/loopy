@@ -1598,7 +1598,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case msg.err != nil:
 			m.append(errStyle.Render("image paste failed: " + msg.err.Error()))
 		case msg.path == "":
-			m.append(dimStyle.Render("(no image on clipboard)"))
+			m.append(dimStyle.Render("(no image on clipboard — on macOS, copy the image itself (cmd+c in Preview) or drag the file into the input)"))
 		default:
 			m.input.InsertString("@" + msg.path + " ")
 			m.refreshMenu()
@@ -1987,6 +1987,13 @@ func (m *model) key(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.hist = append(m.hist, text)
 		m.histIdx = len(m.hist)
 		m.draft = ""
+		// Drag-and-drop lands a bare path in the input (terminals paste the
+		// file path, e.g. /var/folders/…/Screenshot.png). If that's exactly
+		// what was submitted — one token, an existing image file — attach it
+		// as an @-mention instead of feeding a useless path to the parser.
+		if rewritten, ok := bareImagePathAsMention(text); ok {
+			return m.submit(rewritten)
+		}
 		if strings.HasPrefix(text, "/") {
 			return m.command(text)
 		}
