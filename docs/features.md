@@ -122,8 +122,8 @@ dock click hit-testing: `TestDockClickOpensClickedRow`,
 ## Models & providers
 
 `internal/config/config.go`, `internal/config/catalog.go` — models route to
-providers; the provider's `GET /models` is the source of truth for
-capabilities. Two distinct limits, both honored:
+providers; OpenAI-compatible providers use `GET /models` as the source of
+truth for capabilities. Two distinct limits, both honored:
 
 - **Context window (input)** — `Model.Context` (legacy `maxTokens` still
   parses via `ContextWindow()`), overridden by the provider's
@@ -147,6 +147,23 @@ without pricing hide the segment entirely. Tests: `llm/openai_test.go`
 `<status>: <body>` shape), `IsContextLimit()` classifies context-overflow
 errors for the compaction retry, `Stream` returns the message + usage, and
 `Complete` is the non-streaming round-trip used by compaction.
+
+### Codex subscription provider
+
+`"api": "openai-codex-responses", "auth": "codex"` routes a configured
+model through the ChatGPT Codex Responses SSE endpoint without an API key.
+`internal/codexauth/auth.go` reads Pi's `~/.pi/agent/auth.json` first, then
+Codex CLI's `~/.codex/auth.json`; it derives missing account and expiry data
+from JWT claims, refreshes within five minutes of expiry, and atomically
+preserves unrelated auth-file fields. Tokens are never logged or sent to the
+conversation.
+
+`internal/llm/codex.go` maps messages, tool calls, tool results, text/thinking
+deltas, and usage to loopy's existing provider contract. Codex skips `/models`;
+the configured `context` and `maxOut` limits remain authoritative. OAuth
+credentials are accepted only for `https://chatgpt.com/backend-api`. Tests:
+`codexauth/auth_test.go`, `llm/codex_test.go`, and
+`tui/model_cmd_test.go` (`TestBuildAgentCodexAuth*`).
 
 ## The TUI
 

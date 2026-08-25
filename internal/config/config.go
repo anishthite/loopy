@@ -13,7 +13,8 @@ import (
 type Provider struct {
 	Name      string `json:"name,omitempty"`
 	BaseURL   string `json:"baseUrl"`
-	API       string `json:"api"`              // "openai-completions" is the only supported value for now
+	API       string `json:"api"`              // "openai-completions" or "openai-codex-responses"
+	Auth      string `json:"auth,omitempty"`   // "codex" reuses a local Pi/Codex OAuth login
 	APIKey    string `json:"apiKey,omitempty"` // literal key, or use apiKeyEnv
 	APIKeyEnv string `json:"apiKeyEnv,omitempty"`
 }

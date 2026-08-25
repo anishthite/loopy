@@ -312,15 +312,22 @@ func NewTool(name, desc, schema string) Tool {
 	return t
 }
 
-// Client talks to one provider endpoint.
-type Client struct {
+// Client is the provider contract consumed by the agent loop.
+type Client interface {
+	Models(context.Context) ([]ModelInfo, error)
+	Stream(context.Context, Request, func(string), func(string)) (Message, Usage, error)
+	Complete(context.Context, Request) (string, Usage, error)
+}
+
+// OpenAI talks to an OpenAI-compatible chat-completions endpoint.
+type OpenAI struct {
 	BaseURL string
 	APIKey  string
 	HTTP    *http.Client
 }
 
-func New(baseURL, apiKey string) *Client {
-	return &Client{
+func New(baseURL, apiKey string) *OpenAI {
+	return &OpenAI{
 		BaseURL: strings.TrimRight(baseURL, "/"),
 		APIKey:  apiKey,
 		HTTP:    &http.Client{Timeout: 10 * time.Minute},
@@ -496,7 +503,7 @@ func SessionCost(u Usage, in, out, cacheRead float64) float64 {
 }
 
 // Models fetches GET /models from the provider.
-func (c *Client) Models(ctx context.Context) ([]ModelInfo, error) {
+func (c *OpenAI) Models(ctx context.Context) ([]ModelInfo, error) {
 	hr, err := http.NewRequestWithContext(ctx, "GET", c.BaseURL+"/models", nil)
 	if err != nil {
 		return nil, err
@@ -524,7 +531,7 @@ func (c *Client) Models(ctx context.Context) ([]ModelInfo, error) {
 // onThink for each reasoning_content delta (both may be nil). It returns the
 // final assistant message (with any accumulated tool calls) plus the usage
 // the provider reports on the terminal chunk (stream_options:include_usage).
-func (c *Client) Stream(ctx context.Context, req Request, onText, onThink func(string)) (Message, Usage, error) {
+func (c *OpenAI) Stream(ctx context.Context, req Request, onText, onThink func(string)) (Message, Usage, error) {
 	req.Stream = true
 	req.StreamOptions = &struct {
 		IncludeUsage bool `json:"include_usage"`
@@ -624,7 +631,7 @@ func (c *Client) Stream(ctx context.Context, req Request, onText, onThink func(s
 // content plus the reported usage. It's used internally by compaction's
 // summary call, where streaming would just add UI noise for a one-shot
 // synthesis.
-func (c *Client) Complete(ctx context.Context, req Request) (string, Usage, error) {
+func (c *OpenAI) Complete(ctx context.Context, req Request) (string, Usage, error) {
 	req.Stream = false
 	req.Messages = stripAuthored(req.Messages)
 	body, err := json.Marshal(req)

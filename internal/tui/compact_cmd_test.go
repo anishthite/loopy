@@ -138,6 +138,15 @@ func TestContextLimitFromCatalog(t *testing.T) {
 	}
 }
 
+func TestCatalogRefreshKeepsConfiguredFallback(t *testing.T) {
+	m := compactCmdModel()
+	m.agent.ContextLimit = 131072
+	m.updateCatalogs(map[string]config.Catalog{})
+	if m.agent.ContextLimit != 131072 {
+		t.Fatalf("unknown catalog limit should preserve the configured fallback, got %d", m.agent.ContextLimit)
+	}
+}
+
 // Bare /compact with no history reports there's nothing to fold rather than
 // touching the compaction-model selection. (The busy path is exercised
 // end-to-end in the running TUI; here m.prog is nil so we stay on the
