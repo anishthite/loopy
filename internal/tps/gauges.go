@@ -218,7 +218,7 @@ func RenderShiftLights(s Snapshot) string {
 const (
 	tachRows         = 2
 	tachSegments     = 14
-	tachSegmentWidth = 2
+	tachSegmentWidth = 1
 )
 
 // tachReadout is the numeric t/s label pinned to a meter's bottom row.
