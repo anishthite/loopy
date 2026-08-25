@@ -191,17 +191,14 @@ func TestTachBarTapersAtLevel(t *testing.T) {
 	snap := Snapshot{TPS: 50, Redline: 100}
 	line, _, _ := strings.Cut(ansi.Strip(RenderTachBarCap(snap)), "\n")
 	segments := strings.Split(line, " ")
-	if got, want := len(segments), tachSegments; got != want {
+	want := []string{"▌", "▌", "▌", "▌", "▓", "▓", "█", "░", "░", "░", "░", "░", "░", "░"}
+	if got, want := len(segments), len(want); got != want {
 		t.Fatalf("segment count = %d, want %d", got, want)
 	}
 
 	for i, segment := range segments {
-		wantWidth := 1
-		if i >= 4 && i <= 6 {
-			wantWidth = tachLeadingWidth
-		}
-		if got := len([]rune(segment)); got != wantWidth {
-			t.Errorf("segment %d width = %d, want %d", i, got, wantWidth)
+		if segment != want[i] {
+			t.Errorf("segment %d = %q, want %q", i, segment, want[i])
 		}
 	}
 }

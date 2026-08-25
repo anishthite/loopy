@@ -212,14 +212,13 @@ func RenderShiftLights(s Snapshot) string {
 // ── gauge 5: tapered tach bars ──────────────────────────────────────────────
 //
 // These horizontal bars are for the demo lab. The load fills left→right, with
-// a wider leading edge that tapers to slender trailing segments. The second row
-// adds thickness or a marker. The single-row gauges above still own the real
-// status-line slot.
+// a denser leading edge that tapers to slender trailing segments. The second
+// row adds thickness or a marker. The single-row gauges above still own the
+// real status-line slot.
 
 const (
 	tachRows              = 2
 	tachSegments          = 14
-	tachLeadingWidth      = 2
 	tachLeadingSegmentRun = 3
 )
 
@@ -250,42 +249,40 @@ func tachSegmentFrac(i int) float64 {
 	return float64(i) / float64(tachSegments-1)
 }
 
-func tachSegmentWidth(segment, activeLevel int) int {
-	if segment > activeLevel || activeLevel-segment >= tachLeadingSegmentRun {
-		return 1
+func tachLeadingGlyph(segment, activeLevel int, glyph string) string {
+	if segment >= activeLevel-tachLeadingSegmentRun+1 && segment < activeLevel {
+		return "▓"
 	}
-	return tachLeadingWidth
+	return glyph
 }
 
-func tachCell(idx int, glyph string, width int) string {
-	return c256(idx, strings.Repeat(glyph, width))
+func tachCell(idx int, glyph string) string {
+	return c256(idx, glyph)
 }
 
 func tachLine(filled int, litGlyph string, markerAt, markerIdx int, markerGlyph string) string {
 	activeLevel := filled - 1
 	parts := make([]string, tachSegments)
 	for i := range parts {
-		width := tachSegmentWidth(i, activeLevel)
 		switch {
 		case i == markerAt:
-			parts[i] = tachCell(markerIdx, markerGlyph, width)
+			parts[i] = tachCell(markerIdx, markerGlyph)
 		case i < filled:
-			parts[i] = tachCell(gradAt(tachSegmentFrac(i)), litGlyph, width)
+			parts[i] = tachCell(gradAt(tachSegmentFrac(i)), tachLeadingGlyph(i, activeLevel, litGlyph))
 		default:
-			parts[i] = tachCell(238, "░", width)
+			parts[i] = tachCell(238, "░")
 		}
 	}
 	return strings.Join(parts, " ")
 }
 
-func tachMarkerLine(activeLevel, markerAt, markerIdx int, markerGlyph string) string {
+func tachMarkerLine(markerAt, markerIdx int, markerGlyph string) string {
 	parts := make([]string, tachSegments)
 	for i := range parts {
-		width := tachSegmentWidth(i, activeLevel)
 		if i == markerAt {
-			parts[i] = tachCell(markerIdx, markerGlyph, width)
+			parts[i] = tachCell(markerIdx, markerGlyph)
 		} else {
-			parts[i] = strings.Repeat(" ", width)
+			parts[i] = " "
 		}
 	}
 	return strings.Join(parts, " ")
@@ -295,7 +292,7 @@ func tachMarkerLine(activeLevel, markerAt, markerIdx int, markerGlyph string) st
 func RenderTachBarCap(s Snapshot) string {
 	filled := tachFilled(s)
 	level := filled - 1
-	line := tachLine(filled, "█", level, 231, "█")
+	line := tachLine(filled, "▌", level, 231, "█")
 	return line + "\n" + line + tachReadout(s)
 }
 
@@ -303,8 +300,8 @@ func RenderTachBarCap(s Snapshot) string {
 func RenderTachBarNeedle(s Snapshot) string {
 	filled := tachFilled(s)
 	level := filled - 1
-	return tachLine(filled, "▒", level, 231, "█") + "\n" +
-		tachMarkerLine(level, level, 231, "▲") + tachReadout(s)
+	return tachLine(filled, "▌", level, 231, "█") + "\n" +
+		tachMarkerLine(level, 231, "▲") + tachReadout(s)
 }
 
 // RenderTachBarPeak draws the current fill plus a dim-red peak-hold mark.
@@ -312,8 +309,8 @@ func RenderTachBarPeak(s Snapshot) string {
 	filled := tachFilled(s)
 	level := filled - 1
 	peak := tachPeakFilled(s) - 1
-	return tachLine(filled, "█", level, 231, "█") + "\n" +
-		tachMarkerLine(level, peak, 88, "▔") + tachReadout(s)
+	return tachLine(filled, "▌", level, 231, "█") + "\n" +
+		tachMarkerLine(peak, 88, "▔") + tachReadout(s)
 }
 
 // RenderTachBarBlink pulses the active segment on alternate frames.
@@ -324,7 +321,7 @@ func RenderTachBarBlink(s Snapshot) string {
 	if s.Frame%2 != 0 {
 		idx, glyph = 196, "▒"
 	}
-	line := tachLine(filled, "█", level, idx, glyph)
+	line := tachLine(filled, "▌", level, idx, glyph)
 	return line + "\n" + line + tachReadout(s)
 }
 
