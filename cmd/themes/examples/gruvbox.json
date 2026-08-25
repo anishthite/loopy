@@ -1,0 +1,13 @@
+// Gruvbox — retro groove, warm dark palette. Dark bg.
+// https://github.com/morhetz/gruvbox — the classic dark variant.
+{
+  "background": "dark",
+  "colors": {
+    "you":      "#83a598", // gruvbox bright blue
+    "bot":      "#d3869b", // gruvbox bright purple
+    "tool":     "#fabd2f", // gruvbox bright yellow
+    "dim":      "#7c6f64", // gruvbox gray
+    "error":    "#fb4934", // gruvbox bright red
+    "thinking": "#928374"  // gruvbox neutral gray (italic)
+  }
+}

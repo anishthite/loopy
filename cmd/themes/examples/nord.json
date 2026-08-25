@@ -1,0 +1,14 @@
+// Nord — arctic, north-bluish palette (https://www.nordtheme.com). Dark bg.
+// Uses Nord's accent colors for the loopy roles: frost blue for you, aurora
+// purple for the assistant, snow for tool headers.
+{
+  "background": "dark",
+  "colors": {
+    "you":      "#88c0d0", // nord8 — frost (lightest blue)
+    "bot":      "#b48ead", // nord15 — aurora (purple)
+    "tool":     "#ebcb8b", // nord13 — aurora (yellow)
+    "dim":      "#4c566a", // nord3 — Polar Night (deep gray)
+    "error":    "#bf616a", // nord11 — aurora (red)
+    "thinking": "#4c566a"  // nord3 — dim, italic
+  }
+}
