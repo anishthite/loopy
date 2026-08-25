@@ -28,7 +28,7 @@ type Events struct {
 
 // Agent holds one conversation.
 type Agent struct {
-	Client    *llm.Client
+	Client    llm.Client
 	Model     string // model id sent to the API
 	ModelName string // config model name (may differ from Model via id mapping)
 	Provider  string // config provider name
@@ -43,7 +43,7 @@ type Agent struct {
 	ContextLimit int
 	// CompactClient and CompactModel run the compaction summary; nil/"" uses
 	// the conversation's own client and model.
-	CompactClient *llm.Client
+	CompactClient llm.Client
 	CompactModel  string
 	// CompactThreshold is the fraction of ContextLimit at which Turn compacts
 	// proactively; 0 uses defaultCompactThreshold.
@@ -177,7 +177,7 @@ func (a *Agent) Usage() llm.Usage {
 	return u
 }
 
-func New(client *llm.Client, model string, maxTokens int, systemPrompt string) *Agent {
+func New(client llm.Client, model string, maxTokens int, systemPrompt string) *Agent {
 	a := &Agent{
 		Client:    client,
 		Model:     model,

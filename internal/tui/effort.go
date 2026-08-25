@@ -18,6 +18,9 @@ var effortCands = []cand{
 // model: the provider-advertised levels if known (each prefixed by off), else
 // the defaults.
 func (m *model) effortsFor() []string {
+	if m.cfg != nil && m.cfg.Providers[m.provName].API == "openai-codex-responses" {
+		return defaultEfforts
+	}
 	if c, ok := m.catalogs[m.provName]; ok {
 		apiID := m.agent.Model
 		for _, mi := range c.Models {
@@ -84,8 +87,8 @@ func effortCandsFor(levels []string) []cand {
 // fetch completes).
 func (m *model) updateCatalogs(cats map[string]config.Catalog) {
 	m.catalogs = cats
-	if n := m.contextLimitFor(m.provName, m.agent.Model); n != m.agent.ContextLimit {
-		m.agent.ContextLimit = n // /models is the source of truth
+	if n := m.contextLimitFor(m.provName, m.agent.Model); n > 0 && n != m.agent.ContextLimit {
+		m.agent.ContextLimit = n // a provider-advertised limit overrides the configured fallback
 	}
 	if !contains(m.effortsFor(), m.agent.Effort) {
 		m.resetEffort("")

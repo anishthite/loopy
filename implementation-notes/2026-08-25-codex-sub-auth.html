@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Codex subscription auth</title></head>
+<body>
+<h1>Codex subscription auth</h1>
+<p>Scope: local loopy CLI only. Reuse existing Pi or Codex CLI OAuth state,
+then send it through the Codex Responses SSE endpoint.</p>
+<ul>
+  <li>Credentials remain local and are never logged.</li>
+  <li>Pi auth is preferred; Codex CLI auth is the fallback.</li>
+  <li>Refresh writes preserve each source file's unrelated fields.</li>
+  <li>No hosted login, settings UI, bridge sync, or WebSocket path.</li>
+</ul>
+</body>
+</html>

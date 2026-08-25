@@ -1,13 +1,87 @@
 package tui
 
 import (
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/context-labs/loopy/internal/agent"
 	"github.com/context-labs/loopy/internal/config"
+	"github.com/context-labs/loopy/internal/llm"
 )
+
+func TestBuildAgentCodexAuthNeedsNoAPIKey(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("LOOPY_HOME", t.TempDir())
+	path := filepath.Join(home, ".codex", "auth.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(`{"tokens":{"access_token":"access","refresh_token":"refresh","account_id":"account"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := config.SaveCatalogs(map[string]config.Catalog{
+		"codex": {Models: []config.ModelInfoLite{{ID: "gpt-5.4", ContextLength: 1, MaxCompletionTokens: 1}}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Config{
+		DefaultModel: "gpt-5.4",
+		Providers: map[string]config.Provider{
+			"codex": {
+				API:     "openai-codex-responses",
+				Auth:    "codex",
+				BaseURL: "https://chatgpt.com/backend-api",
+			},
+		},
+		Models: map[string]config.Model{
+			"gpt-5.4": {Providers: []string{"codex"}, Context: 272000, MaxOut: 128000},
+		},
+	}
+	ag, _, _, err := buildAgent(cfg, "", "", "system")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := ag.Client.(*llm.Codex); !ok {
+		t.Fatalf("client = %T, want *llm.Codex", ag.Client)
+	}
+	if ag.MaxTokens != 128000 || ag.ContextLimit != 272000 {
+		t.Fatalf("limits = max %d context %d", ag.MaxTokens, ag.ContextLimit)
+	}
+}
+
+func TestBuildAgentCodexAuthGivesLoginHint(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	cfg := &config.Config{
+		DefaultModel: "gpt-5.4",
+		Providers: map[string]config.Provider{
+			"codex": {API: "openai-codex-responses", Auth: "codex", BaseURL: "https://chatgpt.com/backend-api"},
+		},
+		Models: map[string]config.Model{"gpt-5.4": {Providers: []string{"codex"}}},
+	}
+	_, _, _, err := buildAgent(cfg, "", "", "system")
+	if err == nil || !strings.Contains(err.Error(), "codex login") {
+		t.Fatalf("error = %v, want login hint", err)
+	}
+}
+
+func TestBuildAgentCodexRejectsCustomEndpoint(t *testing.T) {
+	cfg := &config.Config{
+		DefaultModel: "gpt-5.4",
+		Providers: map[string]config.Provider{
+			"codex": {API: "openai-codex-responses", Auth: "codex", BaseURL: "https://example.com"},
+		},
+		Models: map[string]config.Model{"gpt-5.4": {Providers: []string{"codex"}}},
+	}
+	_, _, _, err := buildAgent(cfg, "", "", "system")
+	if err == nil || !strings.Contains(err.Error(), "must use https://chatgpt.com/backend-api") {
+		t.Fatalf("error = %v, want safe Codex endpoint", err)
+	}
+}
 
 func modelCmdModel() *model {
 	m := &model{

@@ -90,6 +90,38 @@ Any OpenAI-compatible endpoint works as a provider. Key resolution:
 `apiKeyEnv` env var → `apiKey` literal → for api.inference.net, the key stored
 in `~/.inf/config.json` by the `inf` CLI.
 
+### Codex subscription
+
+To use an existing ChatGPT/Codex subscription instead of an API key, first log
+in with either `pi /login openai-codex` or `codex login`. Then add an explicit
+Codex provider and model route:
+
+```json
+{
+  "providers": {
+    "codex": {
+      "name": "Codex",
+      "baseUrl": "https://chatgpt.com/backend-api",
+      "api": "openai-codex-responses",
+      "auth": "codex"
+    }
+  },
+  "models": {
+    "gpt-5.4": {
+      "providers": ["codex"],
+      "context": 272000,
+      "maxOut": 128000
+    }
+  }
+}
+```
+
+loopy prefers Pi's local auth file and falls back to Codex CLI auth. Expiring
+tokens refresh locally; they are never printed or added to conversations. The
+subscription endpoint has no compatible model catalog, so set `context` and
+`maxOut` explicitly as above. To protect the local OAuth credentials, this
+auth mode only sends them to `https://chatgpt.com/backend-api`.
+
 ## MCP
 
 loopy connects to MCP servers and their tools appear in the agent as
