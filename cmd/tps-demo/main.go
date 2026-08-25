@@ -1,8 +1,10 @@
-// Command tps-demo is a fake page that revs a simulated token stream and
-// renders all four tps gauges live, side by side, so you can pick a vibe.
+// Command tps-demo is a fake dashboard that revs a simulated token stream and
+// renders four thick tach-bar gauges live, stacked vertically, plus the F1
+// shift lights — so you can pick how you want the current "level" to read.
 //
 //	go run ./cmd/tps-demo            # interactive: hold SPACE to floor it
 //	go run ./cmd/tps-demo -snap      # static frames at a few TPS levels (no TTY)
+//	go run ./cmd/tps-demo -rec       # headless ASCII recording (no TTY)
 //
 // Hold SPACE to floor the throttle; release to coast. 'a' toggles auto-rev
 // (on by default — the engine cycles idle → rev → redline → shift on its own).
@@ -38,7 +40,6 @@ type model struct {
 	cycle   int    // which rev cycle we're in (drives higher peaks each lap)
 	phase   string // idle | rev | redline | shift
 	phaseT  time.Duration
-	target  float64 // current target t/s
 	rate    float64 // smoothed actual t/s feeding the tracker
 	carry   float64 // fractional tokens carried across frames (int truncation fix)
 	maxEver float64
@@ -153,17 +154,13 @@ func (m model) step(dt time.Duration) model {
 func (m model) View() string {
 	snap := m.tracker.Snapshot()
 
-	title := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("13")).Render("LOOPY · TPS GAUGE LAB")
-	sub := lipgloss.NewStyle().Foreground(lipgloss.Color("245")).Render("4 ways to feel the tokens rip")
+	title := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("13")).Render("LOOPY · TACH-BAR LAB")
+	sub := lipgloss.NewStyle().Foreground(lipgloss.Color("245")).Render("4 ways to mark the level on a fat RPM bar")
 	pad := strings.Repeat(" ", max(0, m.width-len(title)-len(sub)-2))
 	top := title + pad + sub
 
-	// a full-width status line using each gauge, the way the real TUI would
-	status := lipgloss.NewStyle().Foreground(lipgloss.Color("245")).Render
-	cwd := " ~/workspace/loopy"
-	mdl := "opus-420 (high)"
-	prov := "openrouter"
-
+	// mkPanel wraps a gauge in a labeled rounded box. Works for multi-line
+	// meters (the thick tach bars) as well as the one-line shift lights.
 	mkPanel := func(label, hint, gauge string) string {
 		head := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("12")).Render(label) +
 			lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render("  "+hint)
@@ -175,29 +172,20 @@ func (m model) View() string {
 		return head + "\n" + box
 	}
 
-	// render the gauge once per panel; render in the loopy status-line context
-	// too (cwd · model · provider · gauge) so you can see how each reads inline.
-	inline := func(g string) string {
-		return status(fmt.Sprintf(" %s   %s   %s   %s", cwd, mdl, prov, stripANSI(g))) + "   " + g
-	}
+	// four thick tach-bar meters, one per level-marker style, stacked to keep
+	// the horizontal bars readable without making the demo too wide.
+	cap := mkPanel("① cap", "white active segment", tps.RenderTachBarCap(snap))
+	needle := mkPanel("② needle", "▲ marker under the level", tps.RenderTachBarNeedle(snap))
+	peak := mkPanel("③ peak-hold", "▔ mark at the highest seen", tps.RenderTachBarPeak(snap))
+	blink := mkPanel("④ blink", "active segment pulses", tps.RenderTachBarBlink(snap))
+	meters := lipgloss.JoinVertical(lipgloss.Left, cap, "", needle, "", peak, "", blink)
 
-	bar := mkPanel("① bar", "fill + leading edge, green→red", tps.RenderBar(snap))
-	tach := mkPanel("② tach", "analog needle dial, redline zone", tps.RenderTach(snap))
-	spark := mkPanel("③ sparkline", "rolling waveform, newest lit", tps.RenderSparkline(snap))
-	lights := mkPanel("④ shift lights", "F1 LEDs, blink at redline", tps.RenderShiftLights(snap))
+	lights := mkPanel("⑤ shift lights", "F1 LEDs, blink at redline", tps.RenderShiftLights(snap))
 
-	panels := lipgloss.JoinVertical(lipgloss.Left, bar, "", tach, "", spark, "", lights)
-
-	// live status-line previews, one per gauge
-	statuses := lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render("── status-line preview (each gauge inlined) ──") + "\n" +
-		inline(tps.RenderBar(snap)) + "\n" +
-		inline(tps.RenderTach(snap)) + "\n" +
-		inline(tps.RenderSparkline(snap)) + "\n" +
-		inline(tps.RenderShiftLights(snap))
-
+	status := lipgloss.NewStyle().Foreground(lipgloss.Color("245")).Render
 	telemetry := status(fmt.Sprintf(
-		"phase %-8s cycle %d   target %5.1f → rate %5.1f t/s   peak %5.1f   redline %5.0f   frame %d",
-		m.phase, m.cycle, m.target, m.rate, snap.Peak, snap.Redline, snap.Frame,
+		"phase %-8s cycle %d   rate %5.1f t/s   peak %5.1f   redline %5.0f   frame %d",
+		m.phase, m.cycle, m.rate, snap.Peak, snap.Redline, snap.Frame,
 	))
 	if m.floor {
 		telemetry = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("196")).Render("│ FLOORED │ ") + telemetry
@@ -211,8 +199,8 @@ func (m model) View() string {
 
 	body := lipgloss.JoinVertical(lipgloss.Left,
 		top, "",
-		panels, "",
-		statuses, "",
+		meters, "",
+		lights, "",
 		telemetry, "",
 		controls,
 	)
@@ -250,27 +238,6 @@ type fakeClock struct{ t time.Time }
 
 func (c *fakeClock) now() time.Time { return c.t }
 
-// stripANSI removes escape sequences so the inline preview keeps its dim style
-// while the colored gauge renders beside it.
-func stripANSI(s string) string {
-	var b strings.Builder
-	in := false
-	for _, r := range s {
-		if r == '\x1b' {
-			in = true
-			continue
-		}
-		if in {
-			if r == 'm' {
-				in = false
-			}
-			continue
-		}
-		b.WriteRune(r)
-	}
-	return b.String()
-}
-
 func main() {
 	snap := flag.Bool("snap", false, "render static frames at several TPS levels instead of the live TUI")
 	rec := flag.Bool("rec", false, "record N ASCII frames of the animation to stdout (no TTY) for headless verification")
@@ -288,10 +255,10 @@ func main() {
 	}
 }
 
-// runRecording animates the engine headlessly and prints one compact frame
-// per tick to stdout, so the revving motion is verifiable without a TTY. Each
-// frame shows all four gauges plus the phase telemetry, so you can watch the
-// needle sweep, the sparkline fill, and the shift lights climb into RED!.
+// runRecording animates the engine headlessly and prints one compact frame per
+// tick to stdout, so the revving motion is verifiable without a TTY. Each frame
+// shows the four thick tach-bar meters, the shift lights, and the phase
+// telemetry, so you can watch the level markers climb and the LEDs flash RED!.
 func runRecording() {
 	m := initial()
 	m.width, m.height = 96, 40
@@ -305,24 +272,43 @@ func runRecording() {
 	}
 }
 
-// compactFrame is a single-line-per-gauge rendering for the recording mode —
-// the full TUI View's box layout is overkill for a scrolling ASCII capture.
+// compactFrame renders the four thick tach-bar meters plus the shift lights
+// and telemetry for the headless recording — a compact slice of the full TUI.
 func compactFrame(m model) string {
 	s := m.tracker.Snapshot()
 	head := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("13")).Render(
-		fmt.Sprintf("LOOPY TPS · frame %d · phase %-8s rate %5.1f t/s peak %5.1f redline %5.0f",
+		fmt.Sprintf("LOOPY TACH-BAR · frame %d · phase %-8s rate %5.1f t/s peak %5.1f redline %5.0f",
 			s.Frame, m.phase, m.rate, s.Peak, s.Redline))
-	status := lipgloss.NewStyle().Foreground(lipgloss.Color("245")).Render(fmt.Sprintf(
-		"cwd ~/loopy   opus-420 (high)   openrouter   "))
-	return head + "\n" +
-		fmt.Sprintf("① bar          %s%s\n", status, tps.RenderBar(s)) +
-		fmt.Sprintf("② tach         %s%s\n", status, tps.RenderTach(s)) +
-		fmt.Sprintf("③ sparkline    %s%s\n", status, tps.RenderSparkline(s)) +
-		fmt.Sprintf("④ shift lights %s%s", status, tps.RenderShiftLights(s))
+	meters := lipgloss.JoinVertical(lipgloss.Left,
+		labeled("① cap   ", tps.RenderTachBarCap(s)),
+		labeled("② needle", tps.RenderTachBarNeedle(s)),
+		labeled("③ peak  ", tps.RenderTachBarPeak(s)),
+		labeled("④ blink ", tps.RenderTachBarBlink(s)),
+	)
+	return head + "\n" + meters + "\n" +
+		fmt.Sprintf("⑤ shift lights %s\n", tps.RenderShiftLights(s)) +
+		fmt.Sprintf("phase %-8s cycle %d rate %5.1f t/s peak %5.1f", m.phase, m.cycle, m.rate, s.Peak)
 }
+
+// labeled prefixes each meter row with a right-aligned name so the four meters
+// line up under their labels in the compact recording.
+func labeled(name, meter string) string {
+	var b strings.Builder
+	for i, line := range strings.Split(meter, "\n") {
+		if i == 0 {
+			b.WriteString(name + " ")
+		} else {
+			b.WriteString(strings.Repeat(" ", len(name)+1))
+		}
+		b.WriteString(line)
+		b.WriteByte('\n')
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
 // visuals are viewable without an interactive terminal — handy for a quick
 // look or a screenshot. Each level feeds the tracker long enough for the
-// redline to settle, then prints the gauges in a compact grid.
+// redline to settle, then prints the four thick tach bars plus the shift lights.
 func runSnapshot() {
 	levels := []struct {
 		name string
@@ -337,7 +323,7 @@ func runSnapshot() {
 	lab := lipgloss.NewStyle().Foreground(lipgloss.Color("12")).Bold(true)
 	dim := lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
 
-	fmt.Println(pr.Render("LOOPY · TPS GAUGE LAB") + "  " + dim.Render("— four vibes, four load points"))
+	fmt.Println(pr.Render("LOOPY · TACH-BAR LAB") + "  " + dim.Render("— horizontal segmented bars, four load points"))
 	fmt.Println(dim.Render("(run with no flags for the live revving TUI: hold SPACE to floor it)"))
 	fmt.Println()
 
@@ -351,16 +337,17 @@ func runSnapshot() {
 			tr.AddTokens(1)
 			clock.t = clock.t.Add(time.Second / time.Duration(lv.tps))
 		}
-		// sample a few times so sparkline + shift-light history has shape
+		// sample a few times so shift-light history has shape
 		for i := 0; i < 8; i++ {
 			tr.Sample()
 		}
 		s := tr.Snapshot()
 		fmt.Println(lab.Render(lv.name))
-		fmt.Printf("  ① bar         %s\n", tps.RenderBar(s))
-		fmt.Printf("  ② tach        %s\n", tps.RenderTach(s))
-		fmt.Printf("  ③ sparkline   %s\n", tps.RenderSparkline(s))
-		fmt.Printf("  ④ shift lights %s\n", tps.RenderShiftLights(s))
+		fmt.Println(labeled("① cap   ", tps.RenderTachBarCap(s)))
+		fmt.Println(labeled("② needle", tps.RenderTachBarNeedle(s)))
+		fmt.Println(labeled("③ peak  ", tps.RenderTachBarPeak(s)))
+		fmt.Println(labeled("④ blink ", tps.RenderTachBarBlink(s)))
+		fmt.Printf("  ⑤ shift lights  %s\n", tps.RenderShiftLights(s))
 		fmt.Println()
 	}
 }
