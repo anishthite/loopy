@@ -90,6 +90,10 @@ Any OpenAI-compatible endpoint works as a provider. Key resolution:
 `apiKeyEnv` env var → `apiKey` literal → for api.inference.net, the key stored
 in `~/.inf/config.json` by the `inf` CLI.
 
+Themes: set `"theme": "dark"`, `"light"`, or a JSON theme name in
+`config.json`; custom themes live at `~/.loopy/themes/<name>.json` and show up
+in `/theme`.
+
 ## MCP
 
 loopy connects to MCP servers and their tools appear in the agent as

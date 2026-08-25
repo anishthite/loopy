@@ -178,6 +178,11 @@ type StyleSet struct {
 	// resolved by the caller's detector at apply time, so an applied theme
 	// always has a concrete dark/light — never auto here).
 	Bg Background
+	// Determined is false when an "auto" theme couldn't resolve a background
+	// (no reliable terminal signal). In that case markdown should render in the
+	// neutral default style (no forced bg) — the TUI checks this to decide
+	// SetUnknownTheme vs SetLightTheme. Bg is BgDark as the safe color default.
+	Determined bool
 }
 
 // styleFor builds one role's style from a resolved color, applying the role's
@@ -208,14 +213,15 @@ func (t Theme) buildStyles(bg Background) StyleSet {
 		}
 	}
 	return StyleSet{
-		You:      styleFor(RoleYou, colors[RoleYou]),
-		Bot:      styleFor(RoleBot, colors[RoleBot]),
-		Tool:     styleFor(RoleTool, colors[RoleTool]),
-		Dim:      styleFor(RoleDim, colors[RoleDim]),
-		Error:    styleFor(RoleError, colors[RoleError]),
-		Thinking: styleFor(RoleThinking, colors[RoleThinking]),
-		Colors:   colors,
-		Bg:       bg,
+		You:        styleFor(RoleYou, colors[RoleYou]),
+		Bot:        styleFor(RoleBot, colors[RoleBot]),
+		Tool:       styleFor(RoleTool, colors[RoleTool]),
+		Dim:        styleFor(RoleDim, colors[RoleDim]),
+		Error:      styleFor(RoleError, colors[RoleError]),
+		Thinking:   styleFor(RoleThinking, colors[RoleThinking]),
+		Colors:     colors,
+		Bg:         bg,
+		Determined: true, // a concrete-bg theme always knows its background
 	}
 }
 
@@ -267,22 +273,7 @@ func Apply(name string, detect DetectFunc) string {
 		if detect != nil {
 			bg, determined = detect()
 		}
-		mu.Lock()
-		active = "auto"
-		if determined {
-			styleSet = builtins[string(bg)].buildStyles(bg)
-			lipgloss.SetHasDarkBackground(bg == BgDark)
-		} else {
-			// unknown background: neutral markdown, dark colors as the safe default
-			styleSet = builtins["dark"].buildStyles(BgDark)
-			lipgloss.SetHasDarkBackground(true)
-		}
-		mu.Unlock()
-		setMarkdownBg(determined && bg == BgLight)
-		if determined {
-			return fmt.Sprintf("auto → %s", bg)
-		}
-		return "auto (undetermined — neutral default)"
+		return ApplyAuto(bg, determined)
 	}
 
 	// built-in dark/light
@@ -306,19 +297,25 @@ func Apply(name string, detect DetectFunc) string {
 	}
 	bg := t.Background
 	if bg == BgAuto {
-		// a user theme can also be "auto": resolve like the built-in
+		// a user theme can also be "auto": resolve like the built-in.
 		concrete, determined := BgDark, false
 		if detect != nil {
 			concrete, determined = detect()
 		}
-		bg = concrete
 		mu.Lock()
 		active = t.Name
-		styleSet = t.buildStyles(bg)
-		lipgloss.SetHasDarkBackground(bg == BgDark)
+		styleSet = t.buildStyles(concrete)
+		if !determined {
+			styleSet.Determined = false
+		}
+		lipgloss.SetHasDarkBackground(concrete == BgDark)
 		mu.Unlock()
-		setMarkdownBg(determined && bg == BgLight)
-		return fmt.Sprintf("%s → %s", t.Name, bg)
+		if determined {
+			setMarkdownBg(concrete == BgLight)
+			return fmt.Sprintf("%s → %s", t.Name, concrete)
+		}
+		SetUnknownMarkdown()
+		return fmt.Sprintf("%s (undetermined — neutral default)", t.Name)
 	}
 	mu.Lock()
 	active = t.Name
@@ -327,6 +324,34 @@ func Apply(name string, detect DetectFunc) string {
 	mu.Unlock()
 	setMarkdownBg(bg == BgLight)
 	return t.Name
+}
+
+// ApplyAuto is the pre-resolved auto path: the caller already ran the detector
+// (it may need the detection source string for a UI note, which DetectFunc
+// can't return), so this just swaps in the resolved built-in and drives the
+// markdown cache. Apply("auto"/"", detect) delegates here; the loopy TUI calls
+// it directly from its probeBackground result so the "(auto: <source>)" note
+// can carry the source without probing the terminal twice.
+func ApplyAuto(bg Background, determined bool) string {
+	mu.Lock()
+	active = "auto"
+	if determined {
+		styleSet = builtins[string(bg)].buildStyles(bg)
+		lipgloss.SetHasDarkBackground(bg == BgDark)
+	} else {
+		// unknown background: neutral markdown, dark colors as the safe default
+		ds := builtins["dark"].buildStyles(BgDark)
+		ds.Determined = false // signals the caller to render markdown neutral
+		styleSet = ds
+		lipgloss.SetHasDarkBackground(true)
+	}
+	mu.Unlock()
+	if determined {
+		setMarkdownBg(bg == BgLight)
+		return fmt.Sprintf("auto → %s", bg)
+	}
+	SetUnknownMarkdown() // neutral default: no forced bg, matching loopy today
+	return "auto (undetermined — neutral default)"
 }
 
 // lookup finds a user theme by name from the last Load. Themes are loaded once
@@ -362,18 +387,20 @@ func Loaded() []Theme {
 // All returns built-ins (auto/light/dark, in that order) followed by cached
 // user themes — the order the /theme panel lists them.
 func All() []Theme {
-	out := make([]Theme, 0, 3+len(loaded))
+	user := Loaded()
+	out := make([]Theme, 0, 3+len(user))
 	out = append(out, builtins["auto"], builtins["light"], builtins["dark"])
-	for _, t := range Loaded() {
-		out = append(out, t)
-	}
+	out = append(out, user...)
 	return out
 }
 
 // ----- loading from disk -------------------------------------------------
 
-// DefaultDir is ~/.loopy/themes, mirroring loopy's config home.
+// DefaultDir is LOOPY_HOME/themes, or ~/.loopy/themes when LOOPY_HOME is unset.
 func DefaultDir() (string, error) {
+	if d := os.Getenv("LOOPY_HOME"); d != "" {
+		return filepath.Join(d, "themes"), nil
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err

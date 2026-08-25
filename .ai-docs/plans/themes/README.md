@@ -1,20 +1,16 @@
-# User-authored JSON themes (standalone playground first)
+# User-authored JSON themes
 
 Branch: `themes` (worktree `../loopy-themes`, off `main` @ b01ea52)
 
 ## What this does
 
-Two things, in order:
+Two things:
 
-1. **A standalone playground** (`internal/theme` + `cmd/themes`) you can run and
-   poke at *right now*, decoupled from loopy's 116KB `internal/tui`. Author a
-   theme JSON file, run `go run ./cmd/themes --dir <dir>`, pick it in the
-   bubbletea picker, see a fake loopy transcript recolor live. Edit the file on
-   disk → the transcript hot-reloads.
-2. **(deferred)** Wiring `internal/theme` into the real TUI's six UI styles and
-   the `/theme` panel. The package is shaped for this (built-ins carry today's
-   exact indices, `Apply` is the single style-setting path) but the TUI wiring
-   is a separate, smaller change once the playground feels right.
+1. **A standalone playground** (`internal/theme` + `cmd/themes`) lets theme files
+   be authored and hot-reloaded against a fake loopy transcript.
+2. **Real TUI wiring** maps `internal/theme.StyleSet` onto loopy's six transcript
+   styles, loads `$LOOPY_HOME/themes/*.json` at startup, and lists custom themes
+   in `/theme`.
 
 ## Goal (standalone)
 
@@ -214,11 +210,9 @@ the field is already an opaque string. `Default()` still returns `""` (auto).
   `dynDesc` from `theme.Active()`.
 - **edit** `internal/config/config.go` — widen `Theme` doc comment only.
 - **edit** `docs/features.md` — new "Themes" subsection (behavior → code → tests).
-- **edit** `docs/roadmap.md` — check the "Theme support" box (partial: JSON
-  themes + live switch landed; `{dark,light}` pairs + system-from-terminal
-  palette deferred — note in the checkbox).
-- **edit** `README.md` — short "Themes" note if user-facing (the `/theme` +
-  `~/.loopy/themes/` path is user-facing). Confirm during build.
+- **edit** `docs/roadmap.md` — check the six-role JSON theme slice; leave rich
+  `{dark,light}` pairs + system palette as a separate unchecked item.
+- **edit** `README.md` — short `config.json` + `~/.loopy/themes/` note.
 
 ## Test plan
 

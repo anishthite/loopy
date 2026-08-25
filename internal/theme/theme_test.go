@@ -314,6 +314,18 @@ func TestLoadMissingDirYieldsBuiltins(t *testing.T) {
 	}
 }
 
+func TestDefaultDirHonorsLoopyHome(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("LOOPY_HOME", home)
+	got, err := DefaultDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(home, "themes"); got != want {
+		t.Fatalf("DefaultDir = %q, want %q", got, want)
+	}
+}
+
 // Reload picks up a file added after the first Load (hot-edit support).
 func TestReloadSeesNewFile(t *testing.T) {
 	resetState(t)
@@ -341,6 +353,28 @@ func TestApplyUnknownNameFallsBack(t *testing.T) {
 	}
 	if got := Active(); got != "auto" {
 		t.Errorf("unknown name → Active = %q, want auto", got)
+	}
+}
+
+func TestApplyUserAutoUndeterminedIsNeutral(t *testing.T) {
+	resetState(t)
+	dir := writeThemesDir(t, map[string]string{
+		"adaptive.json": `{"background":"auto","colors":{"you":"99"}}`,
+	})
+	LoadFrom(dir)
+	note := Apply("adaptive", func() (Background, bool) { return "", false })
+	if !strings.Contains(note, "undetermined") {
+		t.Fatalf("note = %q", note)
+	}
+	if got := Active(); got != "adaptive" {
+		t.Fatalf("Active = %q, want adaptive", got)
+	}
+	if Styles().Determined {
+		t.Fatal("undetermined user auto theme should set StyleSet.Determined=false")
+	}
+	out := RenderMarkdown("plain body text", 60)
+	if strings.Contains(out, "38;5;252") || strings.Contains(out, "38;5;234") {
+		t.Errorf("undetermined should not force a body color: %q", out)
 	}
 }
 

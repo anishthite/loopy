@@ -10,6 +10,7 @@ import (
 	"github.com/context-labs/loopy/internal/browser"
 	"github.com/context-labs/loopy/internal/config"
 	"github.com/context-labs/loopy/internal/mcp"
+	"github.com/context-labs/loopy/internal/theme"
 )
 
 // paletteItem is one row in the ctrl+p command palette. It mirrors opencode's
@@ -270,10 +271,13 @@ func (m *model) paletteItems() []paletteItem {
 			stepBack: func(m *model) { m.setThinking(false) },
 			stepFwd:  func(m *model) { m.setThinking(true) }},
 		{title: "Theme", category: "Display",
-			dynDesc: func(m *model) string { return "current: " + CurrentTheme() },
+			dynDesc: func(m *model) string { return "current: " + theme.Active() },
 			dynHint: func(m *model) string { return "/theme" },
 			panel: func(m *model) *ppanel {
-				list := []string{"auto", "light", "dark"}
+				// built-ins (auto/light/dark) first, then any user themes from
+				// $LOOPY_HOME/themes/*.json or ~/.loopy/themes/*.json.
+				theme.Load()
+				list := theme.Names(theme.All())
 				cur := m.cfg.Theme
 				if cur == "" {
 					cur = "auto"
@@ -846,7 +850,7 @@ func (m *model) panelView(pp *ppanel) string {
 		b.WriteString("\n" + dimStyle.Render("  ↑/↓ select · enter/←/→ apply · esc back"))
 
 	case panelTheme:
-		cur := m.cfg.Theme
+		cur := theme.Active()
 		if cur == "" {
 			cur = "auto"
 		}

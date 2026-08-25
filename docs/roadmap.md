@@ -123,7 +123,8 @@ Improvement plan with per-item checkboxes: [`.ai-docs/plans/mcp-polish/`](../.ai
 - [ ] Single keybind+command registry: palette, slash commands, help, and footer hints all derived from one table (opencode `config/keybind.ts` — the highest value-per-line idea in that repo)
 - [ ] One generic fuzzy-select widget reused by every picker: model, session, theme, timeline (opencode `ui/dialog-select.tsx`)
 - [ ] KV table in sessions.db for palette-toggleable UI prefs — no config ceremony per toggle (opencode `context/kv.tsx` pattern)
-- [ ] Theme support: JSON themes with named defs + `{dark, light}` variant pairs; a "system" theme built from the terminal's real palette (opencode `theme/index.ts`)
+- [x] Ponytail theme support: `~/.loopy/themes/*.json` six-role themes, `config.json` `"theme"`, and `/theme` live switcher.
+- [ ] Rich theme support: named defs + `{dark, light}` variant pairs; a "system" theme built from the terminal's real palette (opencode `theme/index.ts`)
 - [x] `"mouse": false` config escape hatch so native terminal selection works (opencode `app.tsx:196`) — also a runtime `/mouse` toggle; with capture on, hold shift to select text in the transcript
 
 ## CLI surface
