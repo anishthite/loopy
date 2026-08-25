@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -210,6 +211,60 @@ func TestCdTilde(t *testing.T) {
 	m.command("/cd ~")
 	if wd, _ := os.Getwd(); wd != home {
 		t.Fatalf("/cd ~ should land in $HOME: got %q", wd)
+	}
+}
+
+// TestWindowTitleTracksCwd pins the terminal window title: it's "loopy <cwd>"
+// (pi-style), cdCommand re-emits a SetWindowTitle command after a successful
+// move (nil on a bare /cd print or a failed chdir), and windowTitle follows
+// os.Getwd. Init batches the same command with textarea.Blink so the title
+// settles at startup. bubbletea emits OSC 2; this test exercises our wiring,
+// not the escape bytes (those are ansi.SetWindowTitle, upstream-tested).
+func TestWindowTitleTracksCwd(t *testing.T) {
+	orig, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(orig) })
+
+	if got := windowTitle(); !strings.HasPrefix(got, "loopy ") {
+		t.Fatalf("windowTitle should start with \"loopy \": got %q", got)
+	}
+
+	m := shellModel()
+
+	// bare /cd just prints — no title change to push
+	if cmd := m.cdCommand(""); cmd != nil {
+		t.Fatalf("bare /cd should return a nil cmd, got %T", cmd)
+	}
+	// failed /cd does not move and returns nil
+	if cmd := m.cdCommand("/definitely/not/a/dir"); cmd != nil {
+		t.Fatalf("failed /cd should return a nil cmd, got %T", cmd)
+	}
+
+	// a successful move pushes a SetWindowTitle command (bubbletea's
+	// setWindowTitleMsg is unexported, so we inspect the type by name rather
+	// than a type assertion).
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := m.cdCommand(dir)
+	if cmd == nil {
+		t.Fatal("successful /cd should return a SetWindowTitle cmd, got nil")
+	}
+	msg := cmd()
+	if typeName := fmt.Sprintf("%T", msg); !strings.Contains(typeName, "setWindowTitleMsg") {
+		t.Fatalf("cdCommand cmd should produce bubbletea's setWindowTitleMsg, got %s", typeName)
+	}
+	if got := windowTitle(); got != "loopy "+dir {
+		t.Fatalf("windowTitle after /cd should be %q, got %q", "loopy "+dir, got)
+	}
+
+	// Init batches the title command with textarea.Blink so the title also
+	// settles at startup; a non-nil cmd means the batch was built.
+	if m.Init() == nil {
+		t.Fatal("Init should return a batched cmd including SetWindowTitle")
 	}
 }
 

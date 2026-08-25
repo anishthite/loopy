@@ -361,6 +361,11 @@ func Run(cfg *config.Config, modelName, provName, sysPrompt, resumeID string) (s
 	}
 	p := tea.NewProgram(m, opts...)
 	m.prog = p
+	// Set the terminal window title to "loopy <cwd>" (pi-style) so a terminal
+	// tab/window running loopy names it instead of the shell. Set before Run
+	// so this becomes bubbletea's startup title; Init re-emits it as a command
+	// so the title settles even if the renderer isn't ready at NewProgram time.
+	p.SetWindowTitle(windowTitle())
 	// install the interactive bash runner so the agent's bash tool can hand
 	// sudo/ssh-style prompts to the user with a 15s inactivity timeout.
 	m.irunner = newInteractiveRunner(p)
@@ -1078,7 +1083,7 @@ func (m *model) viewportView() string {
 }
 
 func (m *model) Init() tea.Cmd {
-	return textarea.Blink
+	return tea.Batch(textarea.Blink, tea.SetWindowTitle(windowTitle()))
 }
 
 func onOff(b bool) string {
@@ -1115,6 +1120,13 @@ func cwd() string {
 	}
 	return "?"
 }
+
+// windowTitle is the terminal window title loopy sets while it's running —
+// "loopy <cwd>", mirroring pi's "pi <cwd>". bubbletea emits it as an OSC 2
+// sequence (ansi.SetWindowTitle); the shell re-claims the title at its next
+// prompt after loopy exits, so we don't need to restore it ourselves.
+// Test: TestWindowTitleTracksCwd (shell_test.go).
+func windowTitle() string { return "loopy " + cwd() }
 
 // detectColorScheme figures out whether the terminal background is light and
 // calls SetLightTheme so markdown renders with a matching (high-contrast)
@@ -2920,8 +2932,7 @@ func (m *model) command(text string) (tea.Model, tea.Cmd) {
 	case "/lsp":
 		return m.lspCommand(fields)
 	case "/cd":
-		m.cdCommand(strings.TrimSpace(strings.TrimPrefix(text, "/cd")))
-		return m, nil
+		return m, m.cdCommand(strings.TrimSpace(strings.TrimPrefix(text, "/cd")))
 	case "/pwd":
 		m.append(dimStyle.Render(cwd()))
 		return m, nil

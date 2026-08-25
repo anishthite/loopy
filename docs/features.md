@@ -224,6 +224,19 @@ errors for the compaction retry, `Stream` returns the message + usage, and
   `agent.GoalFromContextMessages`); the TUI command mirrors `/compact`'s
   goroutine + `goalFromContextMsg` pattern, refusing while busy and running
   inline when headless. Tests: `goal_test.go` (`TestGoalFromContext*`).
+- **Terminal window title.** While loopy runs it sets the terminal's window/
+  tab title to `loopy <cwd>` (pi shows `pi <cwd>`), so a terminal running
+  loopy names itself instead of the shell. bubbletea's `SetWindowTitle`
+  command emits the OSC 2 sequence (`ansi.SetWindowTitle`, already a dep — no
+  new import). The title is set once at startup in `Run` via
+  `p.SetWindowTitle(windowTitle())` (becomes bubbletea's startup title) and
+  re-batched in `Init` so it settles once the renderer is live; `cdCommand`
+  returns a `tea.SetWindowTitle` command after a successful `/cd` so the
+  `<cwd>` half tracks the working directory (nil for a bare `/cd` print or a
+  failed move). `windowTitle()` is a pure `"loopy " + cwd()` helper next to
+  `cwd()`. loopy runs inline (no alt-screen), so the shell re-claims the
+  title at its next prompt after exit — no restore sequence needed. Tests:
+  `shell_test.go` — `TestWindowTitleTracksCwd`.
 
 ## Conversation time travel
 

@@ -24,6 +24,8 @@ import (
 	"os"
 	"strings"
 
+	tea "github.com/charmbracelet/bubbletea"
+
 	"github.com/context-labs/loopy/internal/tools"
 	"github.com/context-labs/loopy/internal/tools/bashrun"
 )
@@ -112,23 +114,26 @@ func (m *model) applyShellDone(msg shellDoneMsg) {
 // cdCommand changes loopy's working directory for everything (bash tool,
 // relative read/write/edit paths, @ file index). Bare prints it. A command
 // already running under the old cwd keeps it (POSIX); loopy's next spawns —
-// and the next session record — use the new one.
-func (m *model) cdCommand(arg string) {
+// and the next session record — use the new one. It returns a tea.Cmd that
+// re-sets the terminal window title after a successful move so the title's
+// <cwd> half stays current (nil otherwise).
+func (m *model) cdCommand(arg string) tea.Cmd {
 	if arg == "" {
 		m.append(dimStyle.Render(cwd()))
-		return
+		return nil
 	}
 	if arg == "~" || strings.HasPrefix(arg, "~/") {
 		home, err := os.UserHomeDir()
 		if err != nil {
 			m.append(errStyle.Render("/cd: " + err.Error()))
-			return
+			return nil
 		}
 		arg = home + arg[1:]
 	}
 	if err := os.Chdir(arg); err != nil {
 		m.append(errStyle.Render("/cd: " + err.Error()))
-		return
+		return nil
 	}
 	m.append(dimStyle.Render("→ " + cwd()))
+	return tea.SetWindowTitle(windowTitle())
 }

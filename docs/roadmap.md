@@ -125,6 +125,7 @@ Improvement plan with per-item checkboxes: [`.ai-docs/plans/mcp-polish/`](../.ai
 - [ ] KV table in sessions.db for palette-toggleable UI prefs — no config ceremony per toggle (opencode `context/kv.tsx` pattern)
 - [ ] Theme support: JSON themes with named defs + `{dark, light}` variant pairs; a "system" theme built from the terminal's real palette (opencode `theme/index.ts`)
 - [x] `"mouse": false` config escape hatch so native terminal selection works (opencode `app.tsx:196`) — also a runtime `/mouse` toggle; with capture on, hold shift to select text in the transcript
+- [x] Terminal window title: `loopy <cwd>` while running (pi shows `pi <cwd>`) — bubbletea's `SetWindowTitle` emits OSC 2; set at startup (`Run` → `p.SetWindowTitle`, re-batched in `Init`) and re-emitted on `/cd` so the title's `<cwd>` half tracks the working directory. The shell re-claims the title at its next prompt after exit, so no restore sequence is needed
 
 ## CLI surface
 
