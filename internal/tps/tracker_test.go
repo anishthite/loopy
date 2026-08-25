@@ -49,7 +49,7 @@ func TestTrackerPeakPersists(t *testing.T) {
 
 	for i := 0; i < 200; i++ {
 		tr.Add("x")
-		tr.Sample() // peak tracks the frame-sampled signal, not per-push spikes
+		tr.Sample()                                 // peak tracks the frame-sampled signal, not per-push spikes
 		clock.t = clock.t.Add(5 * time.Millisecond) // ~200 tok/s briefly
 	}
 	clock.t = clock.t.Add(2 * time.Second)
@@ -140,10 +140,14 @@ func TestRenderersNoPanicAndContainTPS(t *testing.T) {
 	}
 	snap := tr.Snapshot()
 	for name, got := range map[string]string{
-		"bar":        RenderBar(snap),
-		"tach":       RenderTach(snap),
-		"sparkline":  RenderSparkline(snap),
-		"shiftlights": RenderShiftLights(snap),
+		"bar":           RenderBar(snap),
+		"tach":          RenderTach(snap),
+		"sparkline":     RenderSparkline(snap),
+		"shiftlights":   RenderShiftLights(snap),
+		"tachbarcap":    RenderTachBarCap(snap),
+		"tachbarneedle": RenderTachBarNeedle(snap),
+		"tachbarpeak":   RenderTachBarPeak(snap),
+		"tachbarblink":  RenderTachBarBlink(snap),
 	} {
 		if got == "" {
 			t.Errorf("%s: empty render", name)
@@ -151,5 +155,32 @@ func TestRenderersNoPanicAndContainTPS(t *testing.T) {
 		if !strings.Contains(got, "t/s") {
 			t.Errorf("%s: render missing t/s readout: %q", name, got)
 		}
+		// thick tach bars must produce tachRows lines.
+		if strings.HasPrefix(name, "tachbar") && strings.Count(got, "\n")+1 != tachRows {
+			t.Errorf("%s: %d lines, want %d", name, strings.Count(got, "\n")+1, tachRows)
+		}
+	}
+}
+
+// TestTachBarIdleAndFull pins the level-marker logic at the two extremes so a
+// future change to the segment math can't silently break the cap/needle markers.
+func TestTachBarIdleAndFull(t *testing.T) {
+	clock := &fakeClock{t: time.UnixMilli(0)}
+	tr := New(WithNow(clock.now), WithEstimator(func(string) int { return 1 }))
+	idle := tr.Snapshot() // TPS 0 → no lit rows, no marker
+	if strings.Contains(RenderTachBarCap(idle), "\x1b[38;5;231m") {
+		t.Error("idle cap meter should have no white level cap")
+	}
+	// peg the redline: 300 tokens/sec for the whole window.
+	for i := 0; i < 300; i++ {
+		tr.Add("x")
+		clock.t = clock.t.Add(time.Millisecond * 1000 / 300)
+	}
+	full := tr.Snapshot()
+	if !strings.Contains(RenderTachBarCap(full), "\x1b[38;5;231m") {
+		t.Error("full cap meter should show the white level cap")
+	}
+	if !strings.Contains(RenderTachBarNeedle(full), "▲") {
+		t.Error("full needle meter should show the ▲ level marker")
 	}
 }
