@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/charmbracelet/x/ansi"
 )
 
 // fakeClock is a controllable time source for deterministic TPS math.
@@ -155,7 +157,7 @@ func TestRenderersNoPanicAndContainTPS(t *testing.T) {
 		if !strings.Contains(got, "t/s") {
 			t.Errorf("%s: render missing t/s readout: %q", name, got)
 		}
-		// thick tach bars must produce tachRows lines.
+		// tach bars must produce tachRows lines.
 		if strings.HasPrefix(name, "tachbar") && strings.Count(got, "\n")+1 != tachRows {
 			t.Errorf("%s: %d lines, want %d", name, strings.Count(got, "\n")+1, tachRows)
 		}
@@ -182,5 +184,24 @@ func TestTachBarIdleAndFull(t *testing.T) {
 	}
 	if !strings.Contains(RenderTachBarNeedle(full), "▲") {
 		t.Error("full needle meter should show the ▲ level marker")
+	}
+}
+
+func TestTachBarTapersAtLevel(t *testing.T) {
+	snap := Snapshot{TPS: 50, Redline: 100}
+	line, _, _ := strings.Cut(ansi.Strip(RenderTachBarCap(snap)), "\n")
+	segments := strings.Split(line, " ")
+	if got, want := len(segments), tachSegments; got != want {
+		t.Fatalf("segment count = %d, want %d", got, want)
+	}
+
+	for i, segment := range segments {
+		wantWidth := 1
+		if i >= 4 && i <= 6 {
+			wantWidth = tachLeadingWidth
+		}
+		if got := len([]rune(segment)); got != wantWidth {
+			t.Errorf("segment %d width = %d, want %d", i, got, wantWidth)
+		}
 	}
 }

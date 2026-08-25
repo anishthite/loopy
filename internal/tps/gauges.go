@@ -209,16 +209,18 @@ func RenderShiftLights(s Snapshot) string {
 	return fmt.Sprintf("%s%s %s%4.0ft/s%s", strings.TrimRight(b.String(), " "), tag, dim, s.TPS, reset)
 }
 
-// ── gauge 5: thick tach bars ────────────────────────────────────────────────
+// ── gauge 5: tapered tach bars ──────────────────────────────────────────────
 //
-// These are fat horizontal bars for the demo lab: the load fills left→right,
-// each segment has a visible gap, and the second row adds thickness or a marker.
-// The single-row gauges above still own the real status-line slot.
+// These horizontal bars are for the demo lab. The load fills left→right, with
+// a wider leading edge that tapers to slender trailing segments. The second row
+// adds thickness or a marker. The single-row gauges above still own the real
+// status-line slot.
 
 const (
-	tachRows         = 2
-	tachSegments     = 14
-	tachSegmentWidth = 1
+	tachRows              = 2
+	tachSegments          = 14
+	tachLeadingWidth      = 2
+	tachLeadingSegmentRun = 3
 )
 
 // tachReadout is the numeric t/s label pinned to a meter's bottom row.
@@ -248,38 +250,48 @@ func tachSegmentFrac(i int) float64 {
 	return float64(i) / float64(tachSegments-1)
 }
 
-func tachCell(idx int, glyph string) string {
-	return c256(idx, strings.Repeat(glyph, tachSegmentWidth))
+func tachSegmentWidth(segment, activeLevel int) int {
+	if segment > activeLevel || activeLevel-segment >= tachLeadingSegmentRun {
+		return 1
+	}
+	return tachLeadingWidth
+}
+
+func tachCell(idx int, glyph string, width int) string {
+	return c256(idx, strings.Repeat(glyph, width))
 }
 
 func tachLine(filled int, litGlyph string, markerAt, markerIdx int, markerGlyph string) string {
+	activeLevel := filled - 1
 	parts := make([]string, tachSegments)
 	for i := range parts {
+		width := tachSegmentWidth(i, activeLevel)
 		switch {
 		case i == markerAt:
-			parts[i] = tachCell(markerIdx, markerGlyph)
+			parts[i] = tachCell(markerIdx, markerGlyph, width)
 		case i < filled:
-			parts[i] = tachCell(gradAt(tachSegmentFrac(i)), litGlyph)
+			parts[i] = tachCell(gradAt(tachSegmentFrac(i)), litGlyph, width)
 		default:
-			parts[i] = tachCell(238, "░")
+			parts[i] = tachCell(238, "░", width)
 		}
 	}
 	return strings.Join(parts, " ")
 }
 
-func tachMarkerLine(markerAt, markerIdx int, markerGlyph string) string {
+func tachMarkerLine(activeLevel, markerAt, markerIdx int, markerGlyph string) string {
 	parts := make([]string, tachSegments)
 	for i := range parts {
+		width := tachSegmentWidth(i, activeLevel)
 		if i == markerAt {
-			parts[i] = tachCell(markerIdx, markerGlyph)
+			parts[i] = tachCell(markerIdx, markerGlyph, width)
 		} else {
-			parts[i] = strings.Repeat(" ", tachSegmentWidth)
+			parts[i] = strings.Repeat(" ", width)
 		}
 	}
 	return strings.Join(parts, " ")
 }
 
-// RenderTachBarCap draws a thick segmented fill; the active segment is white.
+// RenderTachBarCap draws a tapered segmented fill; the active segment is white.
 func RenderTachBarCap(s Snapshot) string {
 	filled := tachFilled(s)
 	level := filled - 1
@@ -292,7 +304,7 @@ func RenderTachBarNeedle(s Snapshot) string {
 	filled := tachFilled(s)
 	level := filled - 1
 	return tachLine(filled, "▒", level, 231, "█") + "\n" +
-		tachMarkerLine(level, 231, "▲") + tachReadout(s)
+		tachMarkerLine(level, level, 231, "▲") + tachReadout(s)
 }
 
 // RenderTachBarPeak draws the current fill plus a dim-red peak-hold mark.
@@ -301,7 +313,7 @@ func RenderTachBarPeak(s Snapshot) string {
 	level := filled - 1
 	peak := tachPeakFilled(s) - 1
 	return tachLine(filled, "█", level, 231, "█") + "\n" +
-		tachMarkerLine(peak, 88, "▔") + tachReadout(s)
+		tachMarkerLine(level, peak, 88, "▔") + tachReadout(s)
 }
 
 // RenderTachBarBlink pulses the active segment on alternate frames.

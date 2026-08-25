@@ -1,5 +1,5 @@
 // Command tps-demo is a fake dashboard that revs a simulated token stream and
-// renders four thick tach-bar gauges live, stacked vertically, plus the F1
+// renders four tapered tach-bar gauges live, stacked vertically, plus the F1
 // shift lights — so you can pick how you want the current "level" to read.
 //
 //	go run ./cmd/tps-demo            # interactive: SPACE toggles floor/coast
@@ -154,7 +154,7 @@ func (m model) View() string {
 	top := title + pad + sub
 
 	// mkPanel wraps a gauge in a labeled rounded box. Works for multi-line
-	// meters (the thick tach bars) as well as the one-line shift lights.
+	// meters (the tapered tach bars) as well as the one-line shift lights.
 	mkPanel := func(label, hint, gauge string) string {
 		head := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("12")).Render(label) +
 			lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render("  "+hint)
@@ -166,7 +166,7 @@ func (m model) View() string {
 		return head + "\n" + box
 	}
 
-	// four thick tach-bar meters, one per level-marker style, stacked to keep
+	// four tapered tach-bar meters, one per level-marker style, stacked to keep
 	// the horizontal bars readable without making the demo too wide.
 	cap := mkPanel("① cap", "white active segment", tps.RenderTachBarCap(snap))
 	needle := mkPanel("② needle", "▲ marker under the level", tps.RenderTachBarNeedle(snap))
@@ -251,7 +251,7 @@ func main() {
 
 // runRecording animates the engine headlessly and prints one compact frame per
 // tick to stdout, so the revving motion is verifiable without a TTY. Each frame
-// shows the four thick tach-bar meters, the shift lights, and the phase
+// shows the four tapered tach-bar meters, the shift lights, and the phase
 // telemetry, so you can watch the level markers climb and the LEDs flash RED!.
 func runRecording() {
 	m := initial()
@@ -266,7 +266,7 @@ func runRecording() {
 	}
 }
 
-// compactFrame renders the four thick tach-bar meters plus the shift lights
+// compactFrame renders the four tapered tach-bar meters plus the shift lights
 // and telemetry for the headless recording — a compact slice of the full TUI.
 func compactFrame(m model) string {
 	s := m.tracker.Snapshot()
@@ -302,7 +302,7 @@ func labeled(name, meter string) string {
 
 // visuals are viewable without an interactive terminal — handy for a quick
 // look or a screenshot. Each level feeds the tracker long enough for the
-// redline to settle, then prints the four thick tach bars plus the shift lights.
+// redline to settle, then prints the four tapered tach bars plus the shift lights.
 func runSnapshot() {
 	levels := []struct {
 		name string
